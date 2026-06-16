@@ -13,6 +13,16 @@ The first release focuses on a reliable computational core:
 The package is being built from the notation and computational priorities in
 Asmussen and Albrecher, *Ruin Probabilities*, and the R `actuar::ruin` API style.
 
+## Documentation
+
+- [Feature documentation](docs/features.md): models, distributions, prevention,
+  by-claims, formulas, simulation and plots, with arguments and minimal code
+  examples.
+- [Reproducing R actuar examples](docs/reproduce_r_actuar_package.md): Python
+  reproductions of the ruin-theory examples in `R_actuar_package.pdf`.
+- [Scientific references](docs/references.md): full citations and
+  acknowledgments.
+
 ## Quick start
 
 ```python
@@ -74,3 +84,16 @@ Cramer-Lundberg primary-claim models with linear severity scaling:
 Sparre-Andersen arrivals, by-claims, capital injections and nonlinear prevention
 are available in simulation. Phase-type and Markov-modulated methods are planned
 extensions rather than completed APIs.
+
+## Scientific references
+
+Core references include Lundberg (1903, 1926), Cramer (1930, 1955), Sparre
+Andersen (1957), Gerber (1979), Rolski et al. (1999), and Asmussen and
+Albrecher (2010). The actuarial API and examples follow Dutang, Goulet and
+Pigeon (2008) and Goulet's `actuar` ruin-theory notes. Prevention features are
+guided by Ehrlich and Becker (1972), Gauchon et al. (2020, 2021), Schmidli
+(2008), and the seasonal-prevention manuscript by Minier, Valla and Lefevre.
+
+Claude Lefevre's lecture notes and comments helped orient the mathematical
+reading for this project; formal references cite the original scientific
+sources. We thank Claude Lefevre for the notes, discussions and guidance.
