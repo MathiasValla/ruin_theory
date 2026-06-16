@@ -18,9 +18,13 @@ Asmussen and Albrecher, *Ruin Probabilities*, and the R `actuar::ruin` API style
 ```python
 import numpy as np
 from matplotlib import pyplot as plt
-from ruin_theory import CramerLundbergProcess, exponential, ultimate_ruin_exponential
-from ruin_theory.plotting import plot_path, plot_ruin_curve, plot_ruin_time_histogram
-from ruin_theory.simulation import estimate_ruin_probability, simulate_path
+from ruin_theory import (
+    CramerLundbergProcess,
+    estimate_ruin_probability,
+    exponential,
+    simulate_terminal_reserves,
+    ultimate_ruin_exponential,
+)
 
 claims = exponential(rate=5.0)
 model = CramerLundbergProcess(
@@ -32,13 +36,17 @@ model = CramerLundbergProcess(
 
 surplus = np.array([0.0, 1.0, 2.0])
 estimate = estimate_ruin_probability(model, horizon=10.0, n_simulations=5_000, seed=123)
+terminal_reserves = simulate_terminal_reserves(model, horizon=10.0, n_simulations=5_000, seed=123)
 print(ultimate_ruin_exponential(model, u=surplus))
 print(f"Estimated P(ruin by 10): {estimate.probability:.3f}")
+print(f"5% terminal reserve quantile: {np.quantile(terminal_reserves, 0.05):.3f}")
 ```
 
 The same pieces can be visualized with the plotting helpers:
 
 ```python
+from ruin_theory import plot_path, plot_ruin_curve, plot_ruin_time_histogram, simulate_path
+
 u = np.linspace(0.0, 8.0, 100)
 probabilities = ultimate_ruin_exponential(model, u)
 estimate = estimate_ruin_probability(model, horizon=10.0, n_simulations=5_000, seed=123)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import math
 import operator
 from typing import Callable
 
@@ -104,6 +105,7 @@ class FrequencyModel:
 
 
 SeverityTransform = Callable[[np.ndarray], np.ndarray]
+FrequencyWindow = tuple[float, float, float]
 
 
 @dataclass(frozen=True)
@@ -112,13 +114,16 @@ class PreventionProgram:
 
     Multipliers below one reduce the corresponding risk driver. A custom
     ``severity_transform`` can encode deductibles, caps, inflation mitigation or
-    engineering controls that are not simple multipliers.
+    engineering controls that are not simple multipliers. ``frequency_windows``
+    can override the base frequency multiplier on finite intervals, encoded as
+    ``(start, end, multiplier)`` with intervals interpreted as ``[start, end)``.
     """
 
     frequency_multiplier: float = 1.0
     severity_multiplier: float = 1.0
     severity_transform: SeverityTransform | None = None
     name: str = "baseline"
+    frequency_windows: tuple[FrequencyWindow, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -133,9 +138,45 @@ class PreventionProgram:
         )
         if self.severity_transform is not None and not callable(self.severity_transform):
             raise TypeError("severity_transform must be callable or None")
+        windows = tuple(self.frequency_windows)
+        cleaned_windows: list[FrequencyWindow] = []
+        previous_end = 0.0
+        for index, window in enumerate(windows):
+            if len(window) != 3:
+                raise ValueError("frequency_windows must contain (start, end, multiplier) tuples")
+            start = _nonnegative_float(window[0], "frequency window start")
+            end = _nonnegative_float(window[1], "frequency window end")
+            multiplier = _nonnegative_float(window[2], "frequency window multiplier")
+            if end <= start:
+                raise ValueError("frequency window end must be greater than start")
+            if index > 0 and start < previous_end:
+                raise ValueError("frequency_windows must not overlap")
+            cleaned_windows.append((start, end, multiplier))
+            previous_end = end
+        object.__setattr__(self, "frequency_windows", tuple(cleaned_windows))
 
-    def apply_frequency(self, rate: float) -> float:
-        return _nonnegative_float(rate, "rate") * self.frequency_multiplier
+    def frequency_multiplier_at(self, time: float) -> float:
+        current_time = _nonnegative_float(time, "time")
+        for start, end, multiplier in self.frequency_windows:
+            if start <= current_time < end:
+                return multiplier
+        return self.frequency_multiplier
+
+    def next_frequency_change_after(self, time: float) -> float:
+        current_time = _nonnegative_float(time, "time")
+        changes = [
+            boundary
+            for start, end, _ in self.frequency_windows
+            for boundary in (start, end)
+            if boundary > current_time
+        ]
+        if not changes:
+            return np.inf
+        return min(changes)
+
+    def apply_frequency(self, rate: float, time: float | None = None) -> float:
+        multiplier = self.frequency_multiplier if time is None else self.frequency_multiplier_at(time)
+        return _nonnegative_float(rate, "rate") * multiplier
 
     def apply_severity(self, claims: np.ndarray) -> np.ndarray:
         input_values = np.asarray(claims, dtype=float)
@@ -163,16 +204,23 @@ class ByClaimModel:
     distribution: ClaimDistribution
     count_mean: float = 1.0
     name: str = "by_claim"
+    count_distribution: str = "poisson"
 
     def __post_init__(self) -> None:
         probability = _finite_float(self.probability, "probability")
         count_mean = _nonnegative_float(self.count_mean, "count_mean")
+        if not isinstance(self.count_distribution, str):
+            raise TypeError("count_distribution must be a string")
+        count_distribution = self.count_distribution.lower()
         if not 0.0 <= probability <= 1.0:
             raise ValueError("probability must lie in [0, 1]")
         if not isinstance(self.distribution, ClaimDistribution):
             raise TypeError("distribution must be a ClaimDistribution")
+        if count_distribution not in {"poisson", "geometric"}:
+            raise ValueError("count_distribution must be 'poisson' or 'geometric'")
         object.__setattr__(self, "probability", probability)
         object.__setattr__(self, "count_mean", count_mean)
+        object.__setattr__(self, "count_distribution", count_distribution)
 
     def sample_total(self, n_primary: int, rng: np.random.Generator) -> np.ndarray:
         size = _sample_size(n_primary, "n_primary")
@@ -180,7 +228,7 @@ class ByClaimModel:
         totals = np.zeros(size, dtype=float)
         if not np.any(triggered) or self.count_mean == 0:
             return totals
-        counts = rng.poisson(self.count_mean, size=int(triggered.sum()))
+        counts = self.sample_counts(int(triggered.sum()), rng)
         total_secondary = int(counts.sum())
         if total_secondary == 0:
             return totals
@@ -191,6 +239,40 @@ class ByClaimModel:
                 totals[target] = float(np.sum(sizes[offset : offset + count]))
                 offset += count
         return totals
+
+    def sample_counts(self, n_triggered: int, rng: np.random.Generator) -> np.ndarray:
+        size = _sample_size(n_triggered, "n_triggered")
+        if size == 0 or self.count_mean == 0:
+            return np.zeros(size, dtype=int)
+        if self.count_distribution == "poisson":
+            counts = rng.poisson(self.count_mean, size=size)
+        elif self.count_distribution == "geometric":
+            probability = 1.0 / (1.0 + self.count_mean)
+            counts = rng.geometric(probability, size=size) - 1
+        else:
+            raise ValueError(f"unknown count distribution {self.count_distribution!r}")
+        counts = np.asarray(counts)
+        if counts.shape != (size,):
+            raise ValueError("count distribution must return one count per triggered claim")
+        if np.any(~np.isfinite(counts)) or np.any(counts < 0):
+            raise ValueError("secondary claim counts must be finite and non-negative")
+        if np.any(counts != np.floor(counts)):
+            raise ValueError("secondary claim counts must be integers")
+        return counts.astype(int)
+
+    def count_pgf(self, z: float) -> float:
+        """Probability-generating function of the secondary claim count."""
+
+        argument = _finite_float(z, "z")
+        if self.count_mean == 0.0:
+            return 1.0
+        if self.count_distribution == "poisson":
+            return float(math.exp(self.count_mean * (argument - 1.0)))
+        if self.count_distribution == "geometric":
+            probability = 1.0 / (1.0 + self.count_mean)
+            denominator = 1.0 - (1.0 - probability) * argument
+            return float(probability / denominator) if denominator > 0.0 else np.inf
+        raise ValueError(f"unknown count distribution {self.count_distribution!r}")
 
     def expected_amount_per_primary(self) -> float:
         return self.probability * self.count_mean * self.distribution.mean()

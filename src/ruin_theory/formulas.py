@@ -7,7 +7,7 @@ from typing import Callable
 
 import numpy as np
 from numpy.typing import ArrayLike
-from scipy import integrate, optimize
+from scipy import integrate, optimize, special
 
 from .distributions import ClaimDistribution
 from .models import CramerLundbergProcess, RiskProcess
@@ -27,6 +27,10 @@ def safety_loading(model: RiskProcess) -> float:
 
 
 def _closed_form_process_check(model: RiskProcess) -> None:
+    if not isinstance(model, CramerLundbergProcess):
+        raise ValueError("closed-form CL formulas require a CramerLundbergProcess")
+    if model.prevention.frequency_windows:
+        raise ValueError("closed-form CL formulas require stationary frequency prevention")
     if model.capital_injections:
         raise ValueError("closed-form CL formulas do not support capital injections")
     if model.prevention.severity_transform is not None:
@@ -55,9 +59,7 @@ def _aggregate_claim_mgf(model: CramerLundbergProcess, r: float) -> float:
     total = model.claim_distribution.mgf(scale * r)
     for by_claim in model.by_claims:
         by_mgf = by_claim.distribution.mgf(r)
-        total *= (1.0 - by_claim.probability) + by_claim.probability * math.exp(
-            by_claim.count_mean * (by_mgf - 1.0)
-        )
+        total *= (1.0 - by_claim.probability) + by_claim.probability * by_claim.count_pgf(by_mgf)
     return float(total)
 
 
@@ -160,6 +162,114 @@ def _sample_integrated_tail(
     raise NotImplementedError(f"integrated-tail sampling is not implemented for {name}")
 
 
+def _normal_survival(x: np.ndarray) -> np.ndarray:
+    return 0.5 * special.erfc(x / math.sqrt(2.0))
+
+
+def _integrated_tail_survival(
+    distribution: ClaimDistribution,
+    u: ArrayLike,
+    *,
+    scale: float = 1.0,
+) -> np.ndarray:
+    scale = float(scale)
+    if not np.isfinite(scale) or scale < 0:
+        raise ValueError("scale must be finite and non-negative")
+
+    surplus = _as_array(u)
+    if np.any(np.isnan(surplus)):
+        raise ValueError("initial surplus values must not contain NaN")
+    values = np.zeros_like(surplus.ravel(), dtype=float)
+    finite = np.isfinite(surplus.ravel())
+    x = surplus.ravel()[finite]
+    if scale == 0.0 or x.size == 0:
+        return values.reshape(surplus.shape)
+
+    name = distribution.name
+    tail = np.zeros_like(x, dtype=float)
+    if name == "exponential":
+        rate = float(distribution.metadata["rate"]) / scale
+        tail = np.exp(-rate * x)
+    elif name == "mixture_exponential":
+        rates = np.asarray(distribution.metadata["rates"], dtype=float) / scale
+        weights = np.asarray(distribution.metadata["weights"], dtype=float)
+        mean = float(np.sum(weights / rates))
+        tail_weights = weights / rates / mean
+        tail = np.sum(tail_weights[:, None] * np.exp(-rates[:, None] * x), axis=0)
+    elif name == "deterministic":
+        value = scale * float(distribution.metadata["value"])
+        if value > 0.0:
+            tail = np.maximum(1.0 - x / value, 0.0)
+    elif name == "gamma":
+        shape = float(distribution.metadata["shape"])
+        scale_value = scale * float(distribution.metadata["scale"])
+        z = x / scale_value
+        tail = special.gammaincc(shape + 1.0, z) - z / shape * special.gammaincc(shape, z)
+    elif name == "erlang":
+        shape = float(distribution.metadata["shape"])
+        scale_value = scale / float(distribution.metadata["rate"])
+        z = x / scale_value
+        tail = special.gammaincc(shape + 1.0, z) - z / shape * special.gammaincc(shape, z)
+    elif name == "pareto":
+        shape = float(distribution.metadata["shape"])
+        if shape <= 1.0:
+            raise ValueError("Pareto integrated-tail survival requires finite mean")
+        threshold = scale * float(distribution.metadata["scale"])
+        mean = shape * threshold / (shape - 1.0)
+        below = x < threshold
+        tail[below] = 1.0 - x[below] / mean
+        tail[~below] = (threshold / x[~below]) ** (shape - 1.0) / shape
+    elif name == "lognormal":
+        meanlog = math.log(scale) + float(distribution.metadata["meanlog"])
+        sdlog = float(distribution.metadata["sdlog"])
+        log_mean = meanlog + 0.5 * sdlog**2
+        positive = x > 0.0
+        tail[~positive] = 1.0
+        if np.any(positive):
+            xpos = x[positive]
+            d0 = (np.log(xpos) - meanlog) / sdlog
+            d1 = d0 - sdlog
+            sf0 = _normal_survival(d0)
+            sf1 = _normal_survival(d1)
+            weighted_sf0 = np.zeros_like(xpos)
+            positive_sf = sf0 > 0.0
+            weighted_sf0[positive_sf] = np.exp(
+                np.log(xpos[positive_sf]) - log_mean + np.log(sf0[positive_sf])
+            )
+            tail[positive] = sf1 - weighted_sf0
+    elif name == "weibull":
+        shape = float(distribution.metadata["shape"])
+        scale_value = scale * float(distribution.metadata["scale"])
+        tail = special.gammaincc(1.0 / shape, (x / scale_value) ** shape)
+    elif name == "empirical":
+        samples = scale * np.asarray(distribution.metadata["values"], dtype=float)
+        mean = float(np.mean(samples))
+        if mean > 0.0:
+            tail = np.mean(np.maximum(samples[:, None] - x, 0.0), axis=0) / mean
+    else:
+        raise NotImplementedError(f"integrated-tail survival is not implemented for {name}")
+
+    values[finite] = np.clip(tail, 0.0, 1.0)
+    return values.reshape(surplus.shape)
+
+
+def integrated_tail_survival(
+    distribution: ClaimDistribution,
+    u: ArrayLike,
+    *,
+    scale: float = 1.0,
+) -> np.ndarray:
+    """Survival of the equilibrium, or integrated-tail, severity law.
+
+    For a scaled claim ``Y = scale * X`` with finite positive mean, this returns
+    ``bar F_I(u) = E[(Y - u)_+] / E[Y]``. These tails are the distributional
+    input in the Pollaczek-Khinchine formula and in subexponential ruin
+    asymptotics.
+    """
+
+    return _integrated_tail_survival(distribution, u, scale=scale)
+
+
 def _effective_exponential_rate(model: CramerLundbergProcess) -> float:
     if model.claim_distribution.name != "exponential":
         raise ValueError("requires exponential claim sizes")
@@ -217,6 +327,8 @@ def ultimate_ruin_exponential(
     if not np.isfinite(rate):
         return np.zeros_like(surplus, dtype=float)
     lam = model.claim_arrival_rate
+    if lam == 0.0:
+        return np.zeros_like(surplus, dtype=float)
     c = model.premium_rate
     if c <= 0.0:
         return np.ones_like(surplus, dtype=float)
@@ -556,11 +668,26 @@ def de_vylder_approximation(model: CramerLundbergProcess, u: ArrayLike) -> np.nd
 def heavy_tail_integrated_tail_asymptotic(
     model: CramerLundbergProcess,
     u: ArrayLike,
-    integrated_tail_survival: Callable[[np.ndarray], np.ndarray],
+    integrated_tail_survival: Callable[[np.ndarray], np.ndarray] | None = None,
 ) -> np.ndarray:
-    """Subexponential approximation ``rho/(1-rho) * integrated_tail_survival(u)``."""
+    """Subexponential approximation ``rho/(1-rho) * bar F_I(u)``.
 
+    Pass ``integrated_tail_survival`` for a custom equilibrium tail. When it is
+    omitted, the built-in helper is used for the model's scaled primary severity.
+    """
+
+    surplus = _as_array(u)
+    if integrated_tail_survival is None:
+        _primary_claim_formula_check(model)
     rho = model.claim_intensity / model.premium_rate
     if not 0.0 <= rho < 1.0:
         raise ValueError("rho must lie in [0, 1)")
-    return rho / (1.0 - rho) * integrated_tail_survival(_as_array(u))
+    if integrated_tail_survival is None:
+        tail = _integrated_tail_survival(
+            model.claim_distribution,
+            surplus,
+            scale=_severity_scale(model),
+        )
+    else:
+        tail = integrated_tail_survival(surplus)
+    return rho / (1.0 - rho) * tail

@@ -22,18 +22,37 @@ def _next_claim_time(
     current_time: float,
     rng: np.random.Generator,
 ) -> float:
-    frequency_multiplier = float(model.prevention.frequency_multiplier)
-    if not math.isfinite(frequency_multiplier):
-        raise ValueError("frequency_multiplier must be finite")
-    if frequency_multiplier == 0.0:
-        return math.inf
-
     interarrival = float(model.frequency.sample_interarrival(rng))
     if math.isnan(interarrival) or interarrival < 0:
         raise ValueError("claim interarrival times must be non-negative")
     if math.isinf(interarrival):
         return math.inf
-    return current_time + interarrival / frequency_multiplier
+    return _advance_claim_clock(model, current_time, interarrival)
+
+
+def _advance_claim_clock(model: RiskProcess, current_time: float, interarrival: float) -> float:
+    t = float(current_time)
+    remaining = float(interarrival)
+
+    for _ in range(2 * len(model.prevention.frequency_windows) + 2):
+        frequency_multiplier = float(model.prevention.frequency_multiplier_at(t))
+        if not math.isfinite(frequency_multiplier):
+            raise ValueError("frequency_multiplier must be finite")
+
+        next_change = float(model.prevention.next_frequency_change_after(t))
+        if frequency_multiplier > 0.0:
+            if math.isinf(next_change):
+                return t + remaining / frequency_multiplier
+            available = (next_change - t) * frequency_multiplier
+            if remaining <= available:
+                return t + remaining / frequency_multiplier
+            remaining -= available
+
+        if math.isinf(next_change):
+            return math.inf
+        t = next_change
+
+    raise RuntimeError("could not advance claim clock across prevention windows")
 
 
 def _sample_claim_amount(model: RiskProcess, rng: np.random.Generator) -> float:
@@ -180,6 +199,7 @@ def estimate_ruin_probability(
     *,
     n_simulations: int = 10_000,
     ci_level: float = 0.95,
+    ci_method: str = "wilson",
     seed: int | None = None,
     return_paths: bool = False,
 ) -> RuinEstimate | tuple[RuinEstimate, list[SimulationPath]]:
@@ -189,6 +209,9 @@ def estimate_ruin_probability(
         raise ValueError("n_simulations must be positive")
     if not 0 < ci_level < 1:
         raise ValueError("ci_level must lie in (0, 1)")
+    method = ci_method.lower()
+    if method not in {"wilson", "normal"}:
+        raise ValueError("ci_method must be 'wilson' or 'normal'")
     rng = np.random.default_rng(seed)
     ruined = np.zeros(n_simulations, dtype=bool)
     ruin_times = np.full(n_simulations, np.inf)
@@ -204,14 +227,31 @@ def estimate_ruin_probability(
     probability = float(np.mean(ruined))
     standard_error = math.sqrt(max(probability * (1.0 - probability), 0.0) / n_simulations)
     z = float(stats.norm.ppf(0.5 + ci_level / 2.0))
+    if method == "wilson":
+        denominator = 1.0 + z**2 / n_simulations
+        center = (probability + z**2 / (2.0 * n_simulations)) / denominator
+        half_width = (
+            z
+            * math.sqrt(
+                probability * (1.0 - probability) / n_simulations
+                + z**2 / (4.0 * n_simulations**2)
+            )
+            / denominator
+        )
+        ci_low = max(0.0, center - half_width)
+        ci_high = min(1.0, center + half_width)
+    else:
+        ci_low = max(0.0, probability - z * standard_error)
+        ci_high = min(1.0, probability + z * standard_error)
     estimate = RuinEstimate(
         probability=probability,
         standard_error=standard_error,
-        ci_low=float(max(0.0, probability - z * standard_error)),
-        ci_high=float(min(1.0, probability + z * standard_error)),
+        ci_low=float(ci_low),
+        ci_high=float(ci_high),
         n_simulations=int(n_simulations),
         horizon=float(horizon),
         ruin_times=ruin_times,
+        ci_method=method,
     )
     if return_paths:
         return estimate, paths

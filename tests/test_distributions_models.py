@@ -72,6 +72,24 @@ def test_prevention_custom_transform_is_simulation_only_for_mean_intensity():
         _ = model.expected_claim_amount
 
 
+def test_prevention_frequency_windows_validate_and_apply():
+    prevention = PreventionProgram(
+        frequency_multiplier=0.25,
+        frequency_windows=((2.0, 5.0, 0.0), (8.0, 9.0, 2.0)),
+    )
+
+    assert prevention.apply_frequency(4.0) == 1.0
+    assert prevention.apply_frequency(4.0, time=3.0) == 0.0
+    assert prevention.apply_frequency(4.0, time=5.0) == 1.0
+    assert prevention.apply_frequency(4.0, time=8.5) == 8.0
+    assert prevention.next_frequency_change_after(0.0) == 2.0
+
+    with pytest.raises(ValueError, match="end"):
+        PreventionProgram(frequency_windows=((2.0, 2.0, 1.0),))
+    with pytest.raises(ValueError, match="overlap"):
+        PreventionProgram(frequency_windows=((1.0, 3.0, 0.5), (2.0, 4.0, 1.0)))
+
+
 def test_by_claim_sampling_handles_zero_secondary_counts():
     class FakeRng:
         def binomial(self, n, p, size):
@@ -83,3 +101,47 @@ def test_by_claim_sampling_handles_zero_secondary_counts():
     by_claim = ByClaimModel(probability=1.0, distribution=deterministic(5.0), count_mean=1.0)
 
     np.testing.assert_allclose(by_claim.sample_total(3, rng=FakeRng()), [0.0, 10.0, 5.0])
+
+
+def test_by_claim_sampling_supports_geometric_secondary_counts():
+    class FakeRng:
+        def binomial(self, n, p, size):
+            return np.ones(size, dtype=int)
+
+        def geometric(self, p, size):
+            assert p == 0.25
+            return np.array([1, 3, 2])
+
+    by_claim = ByClaimModel(
+        probability=1.0,
+        distribution=deterministic(5.0),
+        count_mean=3.0,
+        count_distribution="geometric",
+    )
+
+    np.testing.assert_allclose(by_claim.sample_total(3, rng=FakeRng()), [0.0, 10.0, 5.0])
+
+
+def test_by_claim_count_pgf_matches_count_distribution():
+    poisson = ByClaimModel(probability=1.0, distribution=deterministic(1.0), count_mean=2.0)
+    geometric = ByClaimModel(
+        probability=1.0,
+        distribution=deterministic(1.0),
+        count_mean=3.0,
+        count_distribution="geometric",
+    )
+
+    assert poisson.count_pgf(1.0) == pytest.approx(1.0)
+    assert poisson.count_pgf(0.5) == pytest.approx(np.exp(-1.0))
+    assert geometric.count_pgf(1.0) == pytest.approx(1.0)
+    assert geometric.count_pgf(0.25) == pytest.approx(0.25 / (1.0 - 0.75 * 0.25))
+    assert np.isinf(geometric.count_pgf(2.0))
+
+
+def test_by_claim_rejects_unknown_count_distribution():
+    with pytest.raises(ValueError, match="count_distribution"):
+        ByClaimModel(
+            probability=1.0,
+            distribution=deterministic(5.0),
+            count_distribution="binomial",
+        )

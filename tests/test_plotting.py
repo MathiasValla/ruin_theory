@@ -15,6 +15,7 @@ from ruin_theory.plotting import (
     plot_paths,
     plot_ruin_curve,
     plot_ruin_time_histogram,
+    plot_terminal_reserve_distribution,
 )
 from ruin_theory.results import RuinEstimate, SimulationPath
 
@@ -80,13 +81,21 @@ def test_plot_paths_overlays_paths_and_rejects_empty_input():
 def test_plot_ruin_curve_validates_and_labels_probability_curve():
     fig, ax = plt.subplots()
     try:
-        result = plot_ruin_curve([0.0, 1.0, 2.0], [0.8, 0.5, 0.2], ax=ax, label="ultimate")
+        result = plot_ruin_curve(
+            [0.0, 1.0, 2.0],
+            [0.8, 0.5, 0.2],
+            ax=ax,
+            label="ultimate",
+            ci_low=[0.7, 0.4, 0.1],
+            ci_high=[0.9, 0.6, 0.3],
+        )
 
         assert result is ax
         assert ax.get_xlabel() == "initial surplus"
         assert ax.get_ylabel() == "ruin probability"
         assert ax.get_ylim() == pytest.approx((0.0, 1.0))
         assert ax.get_legend() is not None
+        assert len(ax.collections) == 1
         np.testing.assert_allclose(ax.lines[0].get_ydata(), [0.8, 0.5, 0.2])
     finally:
         plt.close(fig)
@@ -96,6 +105,44 @@ def test_plot_ruin_curve_validates_and_labels_probability_curve():
 
     with pytest.raises(ValueError, match=r"\[0, 1\]"):
         plot_ruin_curve([0.0], [1.2])
+
+    with pytest.raises(ValueError, match="provided together"):
+        plot_ruin_curve([0.0], [0.5], ci_low=[0.4])
+
+    with pytest.raises(ValueError, match="less than or equal"):
+        plot_ruin_curve([0.0], [0.5], ci_low=[0.6], ci_high=[0.4])
+
+
+def test_plot_terminal_reserve_distribution_marks_zero_and_quantiles():
+    fig, ax = plt.subplots()
+    try:
+        result = plot_terminal_reserve_distribution(
+            [-1.0, 0.0, 1.0, 2.0, 4.0],
+            ax=ax,
+            bins=3,
+            quantiles=[0.25, 0.5, 0.75],
+        )
+
+        assert result is ax
+        assert ax.get_xlabel() == "terminal reserve"
+        assert ax.get_ylabel() == "frequency"
+        assert ax.get_title() == "Terminal reserve distribution"
+        assert ax.get_legend() is not None
+        assert len(ax.patches) == 3
+        assert len(ax.lines) == 4
+        line_positions = [line.get_xdata()[0] for line in ax.lines]
+        np.testing.assert_allclose(line_positions, [0.0, 0.0, 1.0, 2.0])
+    finally:
+        plt.close(fig)
+
+    with pytest.raises(ValueError, match="bins must be positive"):
+        plot_terminal_reserve_distribution([1.0], bins=0)
+
+    with pytest.raises(ValueError, match="finite"):
+        plot_terminal_reserve_distribution([1.0, np.nan])
+
+    with pytest.raises(ValueError, match=r"\[0, 1\]"):
+        plot_terminal_reserve_distribution([1.0], quantiles=[1.2])
 
 
 def test_plot_ruin_time_histogram_handles_ruined_and_unruined_samples():

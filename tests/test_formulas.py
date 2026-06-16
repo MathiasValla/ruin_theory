@@ -4,16 +4,22 @@ import pytest
 from ruin_theory import (
     CramerLundbergProcess,
     PreventionProgram,
+    SparreAndersenProcess,
     adjustment_coefficient,
     cramer_lundberg_asymptotic,
     deterministic,
     exponential,
     finite_time_ruin_exponential,
+    heavy_tail_integrated_tail_asymptotic,
+    integrated_tail_survival,
+    lognormal,
     lundberg_bound,
     mixture_exponential,
+    pareto,
     pollaczek_khinchine_monte_carlo,
     ultimate_ruin_exponential,
     ultimate_ruin_hyperexponential,
+    weibull,
 )
 
 
@@ -57,6 +63,36 @@ def test_exponential_ultimate_ruin_is_one_without_net_profit_condition():
         claim_distribution=exponential(rate=1),
     )
     np.testing.assert_allclose(ultimate_ruin_exponential(model, [0.0, 2.0]), [1.0, 1.0])
+
+
+def test_exponential_ultimate_ruin_is_zero_without_claim_arrivals():
+    model = CramerLundbergProcess(
+        premium_rate=0,
+        claim_arrival_rate=2,
+        claim_distribution=exponential(rate=1),
+        prevention=PreventionProgram(frequency_multiplier=0),
+    )
+
+    np.testing.assert_allclose(ultimate_ruin_exponential(model, [0.0, 2.0]), [0.0, 0.0])
+
+
+def test_closed_form_formulas_reject_non_classical_or_windowed_frequency():
+    renewal = SparreAndersenProcess(
+        premium_rate=1,
+        interarrival_distribution=exponential(rate=3),
+        claim_distribution=exponential(rate=5),
+    )
+    with pytest.raises(ValueError, match="CramerLundbergProcess"):
+        ultimate_ruin_exponential(renewal, [0.0])
+
+    windowed = CramerLundbergProcess(
+        premium_rate=1,
+        claim_arrival_rate=3,
+        claim_distribution=exponential(rate=5),
+        prevention=PreventionProgram(frequency_windows=((1.0, 2.0, 0.5),)),
+    )
+    with pytest.raises(ValueError, match="stationary frequency"):
+        adjustment_coefficient(windowed)
 
 
 def test_lundberg_bound_dominates_exact_exponential_ruin():
@@ -150,6 +186,54 @@ def test_pollaczek_khinchine_mc_supports_deterministic_integrated_tail():
     estimates = pollaczek_khinchine_monte_carlo(model, [0.0, 1.0], n_simulations=2_000, seed=42)
     assert estimates.shape == (2,)
     assert np.all((0.0 <= estimates) & (estimates <= 1.0))
+
+
+def test_integrated_tail_survival_matches_pareto_closed_form():
+    claims = pareto(shape=3.0, scale=2.0)
+    u = np.array([0.0, 1.0, 2.0, 4.0, 8.0])
+    expected = np.array([1.0, 2.0 / 3.0, 1.0 / 3.0, 1.0 / 12.0, 1.0 / 48.0])
+    np.testing.assert_allclose(integrated_tail_survival(claims, u), expected)
+
+
+def test_integrated_tail_survival_supports_lognormal_and_weibull():
+    lognormal_tail = integrated_tail_survival(lognormal(meanlog=0.0, sdlog=0.5), [0.0, 1.0, 3.0])
+    assert lognormal_tail[0] == pytest.approx(1.0)
+    assert np.all(np.diff(lognormal_tail) < 0.0)
+
+    u = np.array([0.0, 1.0, 3.0])
+    np.testing.assert_allclose(
+        integrated_tail_survival(weibull(shape=1.0, scale=2.0), u),
+        np.exp(-u / 2.0),
+    )
+
+
+def test_integrated_tail_survival_scales_severity():
+    claims = pareto(shape=3.0, scale=2.0)
+    u = np.array([1.0, 2.0, 4.0])
+    expected = np.array([1.0 / 3.0, 1.0 / 12.0, 1.0 / 48.0])
+    np.testing.assert_allclose(integrated_tail_survival(claims, u, scale=0.5), expected)
+
+
+def test_integrated_tail_survival_requires_finite_pareto_mean():
+    with pytest.raises(ValueError, match="finite mean"):
+        integrated_tail_survival(pareto(shape=1.0, scale=1.0), [0.0])
+
+
+def test_heavy_tail_asymptotic_can_use_builtin_integrated_tail():
+    model = CramerLundbergProcess(
+        premium_rate=4.0,
+        claim_arrival_rate=1.0,
+        claim_distribution=pareto(shape=3.0, scale=1.0),
+        prevention=PreventionProgram(severity_multiplier=2.0),
+    )
+    u = np.array([1.0, 2.0, 4.0])
+    rho = model.claim_intensity / model.premium_rate
+    expected = rho / (1.0 - rho) * integrated_tail_survival(
+        model.claim_distribution,
+        u,
+        scale=2.0,
+    )
+    np.testing.assert_allclose(heavy_tail_integrated_tail_asymptotic(model, u), expected)
 
 
 def test_adjustment_coefficient_requires_net_profit_condition():

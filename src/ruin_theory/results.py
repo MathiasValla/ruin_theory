@@ -46,6 +46,7 @@ class RuinEstimate:
     n_simulations: int
     horizon: float | None
     ruin_times: np.ndarray
+    ci_method: str = "wilson"
 
     @property
     def expected_time_to_ruin(self) -> float:

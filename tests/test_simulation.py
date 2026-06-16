@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 import ruin_theory.simulation as simulation_module
 from ruin_theory import (
@@ -48,6 +49,23 @@ def test_zero_frequency_prevention_suppresses_claims():
     np.testing.assert_allclose(path.reserves, [2, 5])
     assert path.claim_times.size == 0
     assert not path.ruined
+
+
+def test_frequency_window_prevention_delays_claim_clock():
+    model = SparreAndersenProcess(
+        initial_capital=0,
+        premium_rate=0,
+        interarrival_distribution=deterministic(1),
+        claim_distribution=deterministic(1),
+        prevention=PreventionProgram(
+            frequency_multiplier=0,
+            frequency_windows=((2.0, 4.0, 1.0),),
+        ),
+    )
+
+    path = simulate_path(model, horizon=5, seed=123, stop_at_ruin=False)
+    np.testing.assert_allclose(path.claim_times, [3, 4])
+    np.testing.assert_allclose(path.claim_sizes, [1, 1])
 
 
 def test_sparre_andersen_keeps_claim_schedule_across_injections(monkeypatch):
@@ -157,3 +175,35 @@ def test_monte_carlo_estimate_shape():
     estimate = estimate_ruin_probability(model, horizon=2, n_simulations=200, seed=7)
     assert 0.0 <= estimate.probability <= 1.0
     assert estimate.ruin_times.shape == (200,)
+
+
+def test_monte_carlo_wilson_interval_is_informative_for_zero_ruin_samples():
+    model = CramerLundbergProcess(
+        initial_capital=5,
+        premium_rate=1,
+        claim_arrival_rate=10,
+        claim_distribution=deterministic(1),
+        prevention=PreventionProgram(frequency_multiplier=0),
+    )
+
+    estimate = estimate_ruin_probability(model, horizon=2, n_simulations=20, seed=7)
+    normal = estimate_ruin_probability(
+        model,
+        horizon=2,
+        n_simulations=20,
+        ci_method="normal",
+        seed=7,
+    )
+
+    assert estimate.ci_method == "wilson"
+    assert estimate.probability == 0.0
+    assert estimate.ci_low == 0.0
+    assert estimate.ci_high > 0.0
+    assert normal.ci_high == 0.0
+
+
+def test_monte_carlo_rejects_unknown_ci_method():
+    model = CramerLundbergProcess(claim_distribution=deterministic(1))
+
+    with pytest.raises(ValueError, match="ci_method"):
+        estimate_ruin_probability(model, horizon=1, n_simulations=5, ci_method="exact")

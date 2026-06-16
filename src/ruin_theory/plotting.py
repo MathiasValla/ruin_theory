@@ -107,8 +107,15 @@ def plot_ruin_curve(
     *,
     ax: Axes | None = None,
     label: str | None = None,
+    ci_low: ArrayLike | None = None,
+    ci_high: ArrayLike | None = None,
+    band_alpha: float = 0.18,
 ) -> Axes:
-    """Plot ruin probability against initial surplus."""
+    """Plot ruin probability against initial surplus.
+
+    Optional lower and upper confidence limits can be passed through ``ci_low``
+    and ``ci_high`` to add a shaded uncertainty band.
+    """
 
     surplus = _as_1d_float(u, "u")
     ruin_probabilities = _as_1d_float(probabilities, "probabilities")
@@ -116,13 +123,71 @@ def plot_ruin_curve(
         raise ValueError("u and probabilities must have matching shapes")
     if np.any((ruin_probabilities < 0.0) | (ruin_probabilities > 1.0)):
         raise ValueError("probabilities must lie in [0, 1]")
+    if not 0.0 <= band_alpha <= 1.0:
+        raise ValueError("band_alpha must lie in [0, 1]")
 
     axis = _axis(ax)
+    if (ci_low is None) != (ci_high is None):
+        raise ValueError("ci_low and ci_high must be provided together")
+    if ci_low is not None and ci_high is not None:
+        lower = _as_1d_float(ci_low, "ci_low")
+        upper = _as_1d_float(ci_high, "ci_high")
+        if lower.shape != surplus.shape or upper.shape != surplus.shape:
+            raise ValueError("confidence limits must match u shape")
+        if np.any((lower < 0.0) | (lower > 1.0) | (upper < 0.0) | (upper > 1.0)):
+            raise ValueError("confidence limits must lie in [0, 1]")
+        if np.any(lower > upper):
+            raise ValueError("ci_low must be less than or equal to ci_high")
+        axis.fill_between(surplus, lower, upper, color="#0b6e4f", alpha=band_alpha, linewidth=0)
+
     axis.plot(surplus, ruin_probabilities, color="#0b6e4f", linewidth=2.0, label=label)
     axis.set_xlabel("initial surplus")
     axis.set_ylabel("ruin probability")
     axis.set_ylim(0.0, 1.0)
     if label:
+        axis.legend()
+    return axis
+
+
+def plot_terminal_reserve_distribution(
+    terminal_reserves: ArrayLike,
+    *,
+    ax: Axes | None = None,
+    bins: int = 30,
+    quantiles: Iterable[float] | None = (0.05, 0.5, 0.95),
+    show_zero: bool = True,
+) -> Axes:
+    """Plot the empirical distribution of terminal reserves."""
+
+    if bins <= 0:
+        raise ValueError("bins must be positive")
+
+    reserves = _as_1d_float(terminal_reserves, "terminal_reserves")
+    axis = _axis(ax)
+    axis.hist(reserves, bins=bins, color="#4c78a8", alpha=0.85)
+    if show_zero:
+        axis.axvline(0.0, color="#8c1d2d", linewidth=1.2, linestyle="--", label="zero reserve")
+
+    if quantiles is not None:
+        levels = _as_1d_float(tuple(quantiles), "quantiles")
+        if np.any((levels < 0.0) | (levels > 1.0)):
+            raise ValueError("quantiles must lie in [0, 1]")
+        values = np.quantile(reserves, levels)
+        for level, value in zip(levels, values, strict=True):
+            if np.isclose(level, 0.5):
+                label = "median"
+                color = "#0b6e4f"
+                linestyle = "-"
+            else:
+                label = f"{level:g} quantile"
+                color = "#2f3640"
+                linestyle = ":"
+            axis.axvline(value, color=color, linewidth=1.2, linestyle=linestyle, label=label)
+
+    axis.set_xlabel("terminal reserve")
+    axis.set_ylabel("frequency")
+    axis.set_title("Terminal reserve distribution")
+    if show_zero or quantiles is not None:
         axis.legend()
     return axis
 
