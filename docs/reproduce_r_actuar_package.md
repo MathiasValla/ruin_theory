@@ -1,13 +1,30 @@
 # Reproducing `R_actuar_package.pdf`
 
-The script [examples/reproduce_r_actuar_package.py](../examples/reproduce_r_actuar_package.py)
-recreates the numerical examples from the ruin-theory sections of
+Two scripts recreate the numerical examples from the ruin-theory sections of
 `R_actuar_package.pdf` using this package.
+
+- [examples/reproduce_r_actuar_package.py](../examples/reproduce_r_actuar_package.py)
+  prints the numerical outputs.
+- [examples/r_actuar_package_python.py](../examples/r_actuar_package_python.py)
+  generates a PDF report and standalone PNG figures under `output/`.
 
 Run:
 
 ```bash
 uv run python examples/reproduce_r_actuar_package.py
+uv run python examples/r_actuar_package_python.py
+```
+
+The second command writes:
+
+```text
+output/pdf/r_actuar_package_python.pdf
+output/figures/fig_adjustment_coefficients.png
+output/figures/fig_ruin_curves.png
+output/figures/fig_lundberg_bound.png
+output/figures/fig_beekman_panjer_bounds.png
+output/figures/fig_heavy_tail_asymptotic.png
+output/figures/fig_simulation_diagnostics.png
 ```
 
 ## Adjustment Coefficient
