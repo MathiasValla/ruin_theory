@@ -79,6 +79,7 @@ catalog of closed forms. Implemented formula paths currently cover classical
 Cramer-Lundberg primary-claim models with linear severity scaling:
 
 - ultimate ruin for exponential and hyperexponential severities;
+- ultimate ruin for phase-type severities in the Cramer-Lundberg model;
 - finite-time ruin for exponential severities;
 - Lundberg adjustment coefficients, bounds and light-tail asymptotics;
 - Pollaczek-Khinchine Monte Carlo via equilibrium claim sampling;
@@ -89,8 +90,8 @@ Cramer-Lundberg primary-claim models with linear severity scaling:
 - De Vylder three-moment approximation for supported severity families.
 
 Sparre-Andersen arrivals, by-claims, capital injections and nonlinear prevention
-are available in simulation. Phase-type and Markov-modulated methods are planned
-extensions rather than completed APIs.
+are available in simulation. Markov-modulated methods and matrix-valued
+Gerber-Shiu quantities are planned extensions rather than completed APIs.
 
 ## Scientific references
 

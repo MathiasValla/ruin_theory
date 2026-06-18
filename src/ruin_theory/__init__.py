@@ -20,6 +20,7 @@ from .distributions import (
     lognormal,
     mixture_exponential,
     pareto,
+    phase_type,
     scipy_distribution,
     weibull,
 )
@@ -36,6 +37,7 @@ from .formulas import (
     safety_loading,
     ultimate_ruin_exponential,
     ultimate_ruin_hyperexponential,
+    ultimate_ruin_phase_type,
 )
 from .models import (
     ByClaimModel,
@@ -105,6 +107,7 @@ __all__ = [
     "mixture_exponential",
     "compound_poisson_distribution",
     "pareto",
+    "phase_type",
     "panjer_recursion",
     "plot_path",
     "plot_paths",
@@ -119,6 +122,7 @@ __all__ = [
     "simulate_terminal_reserves",
     "ultimate_ruin_exponential",
     "ultimate_ruin_hyperexponential",
+    "ultimate_ruin_phase_type",
     "ultimate_ruin_panjer",
     "weibull",
 ]

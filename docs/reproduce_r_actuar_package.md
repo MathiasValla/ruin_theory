@@ -139,9 +139,9 @@ u    lower       upper
 ## Remaining Gaps
 
 The package now includes the general building blocks needed for the visible
-discretization, Panjer, VaR and TVaR examples. The PDF also demonstrates
-phase-type ruin computations that require planned package features:
+discretization, Panjer, VaR and TVaR examples, as well as phase-type claim-size
+laws and Cramer-Lundberg ultimate ruin for phase-type claims. Remaining
+matrix-analytic extensions include:
 
-- phase-type distributions and matrix-exponential ruin formulas;
 - phase-type interarrival times in the deterministic ruin solvers;
 - matrix-based Gerber-Shiu quantities.

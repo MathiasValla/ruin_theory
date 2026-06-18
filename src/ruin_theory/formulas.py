@@ -7,9 +7,9 @@ from typing import Callable
 
 import numpy as np
 from numpy.typing import ArrayLike
-from scipy import integrate, optimize, special
+from scipy import integrate, linalg, optimize, special
 
-from .distributions import ClaimDistribution
+from .distributions import ClaimDistribution, phase_type
 from .losses import _raw_moment
 from .models import CramerLundbergProcess, RiskProcess
 
@@ -66,6 +66,37 @@ def _aggregate_claim_mgf(model: CramerLundbergProcess, r: float) -> float:
     return float(total)
 
 
+def _phase_type_components(
+    distribution: ClaimDistribution,
+    *,
+    scale: float = 1.0,
+) -> tuple[np.ndarray, np.ndarray]:
+    if distribution.name != "phase_type":
+        raise ValueError("requires phase_type claim sizes")
+    scale = float(scale)
+    if not np.isfinite(scale) or scale <= 0.0:
+        raise ValueError("scale must be finite and positive")
+    initial = np.asarray(distribution.metadata["initial_probabilities"], dtype=float)
+    matrix = np.asarray(distribution.metadata["subgenerator"], dtype=float) / scale
+    return initial, matrix
+
+
+def _phase_type_mean(initial: np.ndarray, matrix: np.ndarray) -> float:
+    return float(initial @ linalg.solve(-matrix, np.ones(initial.size), assume_a="gen"))
+
+
+def _phase_type_equilibrium_initial(initial: np.ndarray, matrix: np.ndarray) -> np.ndarray:
+    mean = _phase_type_mean(initial, matrix)
+    if not np.isfinite(mean) or mean <= 0.0:
+        raise ValueError("phase_type distribution must have finite positive mean")
+    beta = linalg.solve((-matrix).T, initial, assume_a="gen") / mean
+    beta = np.maximum(np.asarray(beta, dtype=float), 0.0)
+    total = float(beta.sum())
+    if total <= 0.0:
+        raise ValueError("could not build the phase_type equilibrium distribution")
+    return beta / total
+
+
 def _sample_integrated_tail(
     distribution: ClaimDistribution,
     size: int,
@@ -120,6 +151,10 @@ def _sample_integrated_tail(
             return np.zeros(size)
         idx = rng.choice(values.size, size=size, p=values / values.sum())
         return rng.random(size) * values[idx]
+    if name == "phase_type":
+        initial, matrix = _phase_type_components(distribution, scale=scale)
+        beta = _phase_type_equilibrium_initial(initial, matrix)
+        return phase_type(beta, matrix).sample(size, rng=rng)
     raise NotImplementedError(f"integrated-tail sampling is not implemented for {name}")
 
 
@@ -207,6 +242,12 @@ def _integrated_tail_survival(
         mean = float(np.mean(samples))
         if mean > 0.0:
             tail = np.mean(np.maximum(samples[:, None] - x, 0.0), axis=0) / mean
+    elif name == "phase_type":
+        initial, matrix = _phase_type_components(distribution, scale=scale)
+        beta = _phase_type_equilibrium_initial(initial, matrix)
+        ones = np.ones(beta.size, dtype=float)
+        for index, value in enumerate(x):
+            tail[index] = float(beta @ linalg.expm(matrix * value) @ ones)
     else:
         raise NotImplementedError(f"integrated-tail survival is not implemented for {name}")
 
@@ -482,6 +523,50 @@ def ultimate_ruin_hyperexponential(model: CramerLundbergProcess, u: ArrayLike) -
         ]
     )
     values = np.sum(coefficients[:, None] * np.exp(-np.outer(roots, surplus.ravel())), axis=0)
+    return np.clip(values.reshape(surplus.shape), 0.0, 1.0)
+
+
+def ultimate_ruin_phase_type(
+    model: CramerLundbergProcess,
+    u: ArrayLike | None = None,
+) -> np.ndarray:
+    """Exact ultimate ruin probability for phase-type claim sizes.
+
+    Under the net profit condition, the Pollaczek-Khinchine representation gives
+    the all-time maximum as a geometric sum of equilibrium claim sizes. If
+    claims are ``PH(alpha, T)``, the equilibrium severity is
+    ``PH(beta, T)`` with ``beta = alpha (-T)^-1 / E[X]`` and
+
+    ``psi(u) = rho * beta exp((T + rho t beta) u) 1``.
+    """
+
+    _primary_claim_formula_check(model)
+    if model.claim_distribution.name != "phase_type":
+        raise ValueError("requires phase_type claim sizes")
+    surplus = _as_array(model.initial_capital if u is None else u)
+    scale = _severity_scale(model)
+    if scale == 0.0 or model.claim_arrival_rate == 0.0:
+        return np.zeros_like(surplus, dtype=float)
+    if model.premium_rate <= 0.0:
+        return np.ones_like(surplus, dtype=float)
+
+    initial, matrix = _phase_type_components(model.claim_distribution, scale=scale)
+    mean = _phase_type_mean(initial, matrix)
+    rho = model.claim_arrival_rate * mean / model.premium_rate
+    if rho >= 1.0:
+        return np.ones_like(surplus, dtype=float)
+    if rho < 0.0:
+        raise ValueError("rho must be non-negative")
+
+    beta = _phase_type_equilibrium_initial(initial, matrix)
+    ones = np.ones(beta.size, dtype=float)
+    exit_rates = -matrix @ ones
+    maximum_generator = matrix + rho * np.outer(exit_rates, beta)
+
+    flat = surplus.ravel()
+    values = np.empty_like(flat, dtype=float)
+    for index, value in enumerate(flat):
+        values[index] = rho * float(beta @ linalg.expm(maximum_generator * value) @ ones)
     return np.clip(values.reshape(surplus.shape), 0.0, 1.0)
 
 

@@ -19,9 +19,11 @@ from ruin_theory import (
     lundberg_bound,
     mixture_exponential,
     pareto,
+    phase_type,
     pollaczek_khinchine_monte_carlo,
     ultimate_ruin_exponential,
     ultimate_ruin_hyperexponential,
+    ultimate_ruin_phase_type,
     weibull,
 )
 
@@ -153,6 +155,88 @@ def test_hyperexponential_asymptotic_uses_leading_gerber_root():
     u = np.array([4.0, 6.0])
     expected = (24 / 35) * np.exp(-u)
     np.testing.assert_allclose(cramer_lundberg_asymptotic(model, u), expected, rtol=1e-6)
+
+
+def test_phase_type_ultimate_ruin_matches_exponential_closed_form():
+    model = CramerLundbergProcess(
+        premium_rate=1,
+        claim_arrival_rate=3,
+        claim_distribution=phase_type([1.0], [[-5.0]]),
+    )
+    u = np.array([0.0, 1.0, 2.0])
+
+    np.testing.assert_allclose(
+        ultimate_ruin_phase_type(model, u),
+        ultimate_ruin_exponential(
+            CramerLundbergProcess(
+                premium_rate=1,
+                claim_arrival_rate=3,
+                claim_distribution=exponential(rate=5),
+            ),
+            u,
+        ),
+        rtol=1e-12,
+        atol=1e-15,
+    )
+
+
+def test_phase_type_ultimate_ruin_matches_hyperexponential_gerber_example():
+    phase_model = CramerLundbergProcess(
+        premium_rate=1,
+        claim_arrival_rate=3,
+        claim_distribution=phase_type([0.5, 0.5], [[-3.0, 0.0], [0.0, -7.0]]),
+    )
+    hyper_model = CramerLundbergProcess(
+        premium_rate=1,
+        claim_arrival_rate=3,
+        claim_distribution=mixture_exponential(rates=[3, 7], weights=[0.5, 0.5]),
+    )
+    u = np.array([0.0, 1.0, 2.0, 5.0])
+
+    np.testing.assert_allclose(
+        ultimate_ruin_phase_type(phase_model, u),
+        ultimate_ruin_hyperexponential(hyper_model, u),
+        rtol=2e-8,
+        atol=1e-13,
+    )
+
+
+def test_phase_type_ultimate_ruin_accounts_for_severity_prevention():
+    model = CramerLundbergProcess(
+        premium_rate=1,
+        claim_arrival_rate=3,
+        claim_distribution=phase_type([1.0], [[-5.0]]),
+        prevention=PreventionProgram(severity_multiplier=0.5),
+    )
+    u = np.array([0.0, 1.0])
+
+    np.testing.assert_allclose(ultimate_ruin_phase_type(model, u), 0.3 * np.exp(-7.0 * u))
+
+
+def test_phase_type_integrated_tail_and_pk_monte_carlo_are_usable():
+    claims = phase_type([1.0], [[-2.0]])
+    np.testing.assert_allclose(
+        integrated_tail_survival(claims, np.array([0.0, 1.0, 2.0])),
+        np.exp(-2.0 * np.array([0.0, 1.0, 2.0])),
+    )
+
+    model = CramerLundbergProcess(
+        premium_rate=1,
+        claim_arrival_rate=0.5,
+        claim_distribution=claims,
+    )
+    estimates = pollaczek_khinchine_monte_carlo(model, [0.0, 1.0], n_simulations=20_000, seed=7)
+    np.testing.assert_allclose(estimates, ultimate_ruin_phase_type(model, [0.0, 1.0]), atol=0.02)
+
+
+def test_phase_type_ultimate_ruin_rejects_non_phase_type_claims():
+    model = CramerLundbergProcess(
+        premium_rate=1,
+        claim_arrival_rate=0.5,
+        claim_distribution=exponential(rate=1),
+    )
+    with pytest.raises(ValueError, match="phase_type"):
+        ultimate_ruin_phase_type(model, [0.0])
 
 
 def test_finite_time_exponential_is_between_zero_and_ultimate():

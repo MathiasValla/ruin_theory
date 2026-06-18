@@ -17,6 +17,8 @@ Available factories:
 - `erlang(shape, rate)`: integer-shape gamma.
 - `deterministic(value)`: degenerate claim size.
 - `mixture_exponential(rates, weights=None)`: hyperexponential mixture.
+- `phase_type(initial_probabilities, subgenerator)`: continuous phase-type law
+  `PH(alpha, T)`, where `subgenerator` is the transient generator matrix.
 - `pareto(shape, scale)`: Pareto type I on `[scale, infinity)`.
 - `lognormal(meanlog, sdlog)`.
 - `weibull(shape, scale)`.
@@ -42,6 +44,21 @@ print(claims.survival(np.array([0.0, 1.0, 2.0])))
 
 hyper = mixture_exponential(rates=[3.0, 7.0], weights=[0.5, 0.5])
 print(hyper.mgf(0.5))
+```
+
+Phase-type example:
+
+```python
+import numpy as np
+from ruin_theory import phase_type
+
+# Erlang(2, rate=2) as a two-phase PH law.
+claims = phase_type(
+    initial_probabilities=[1.0, 0.0],
+    subgenerator=np.array([[-2.0, 2.0], [0.0, -2.0]]),
+)
+print(claims.mean(), claims.variance())
+print(claims.survival([0.0, 1.0, 2.0]))
 ```
 
 ## Loss Utilities
@@ -381,6 +398,10 @@ Available functions:
   for exponential primary claims.
 - `ultimate_ruin_hyperexponential(model, u)`: exact ultimate ruin probability
   for mixtures of exponentials.
+- `ultimate_ruin_phase_type(model, u=None)`: exact ultimate ruin probability
+  for phase-type claims in the Cramer-Lundberg model. It uses
+  `psi(u) = rho * beta exp((T + rho t beta) u) 1`, with `beta` the equilibrium
+  PH initial vector and `t = -T 1`.
 - `finite_time_ruin_exponential(model, u, horizon)`: finite-time formula for
   exponential primary claims.
 - `expected_time_to_ruin_exponential(model, u=None)`: conditional mean time to
@@ -426,6 +447,21 @@ u = np.array([0.0, 1.0, 2.0])
 gamma = adjustment_coefficient(model)
 print(ultimate_ruin_exponential(model, u))
 print(lundberg_bound(model, u, gamma=gamma))
+```
+
+Phase-type ruin example:
+
+```python
+import numpy as np
+from ruin_theory import CramerLundbergProcess, phase_type, ultimate_ruin_phase_type
+
+claims = phase_type([1.0, 0.0], [[-2.0, 2.0], [0.0, -2.0]])
+model = CramerLundbergProcess(
+    premium_rate=2.0,
+    claim_arrival_rate=1.0,
+    claim_distribution=claims,
+)
+print(ultimate_ruin_phase_type(model, np.array([0.0, 1.0, 2.0])))
 ```
 
 Panjer/Pollaczek-Khinchine example:
@@ -489,6 +525,8 @@ Implemented now:
 
 - Classical Cramer-Lundberg exact formulas for exponential and hyperexponential
   primary claims.
+- Phase-type severity distributions and exact Cramer-Lundberg ultimate ruin
+  probabilities for phase-type primary claims.
 - Loss moments, coverage transformations and lattice discretization.
 - Aggregate-loss distributions by Panjer recursion for common counting laws.
 - Deterministic Pollaczek-Khinchine/Panjer ruin approximations.
@@ -499,8 +537,8 @@ Implemented now:
 
 Planned extensions:
 
-- Phase-type and matrix-exponential severity/wait models.
-- General phase-type aggregate and ruin solvers.
+- Matrix-exponential extensions beyond standard phase-type severities.
+- Phase-type renewal waits and matrix-valued finite-time ruin solvers.
 - Gerber-Shiu penalties with surplus-before-ruin and deficit-at-ruin records.
 - Discrete-time INAR/BINAR by-claim processes.
 - Seasonal/periodic prevention optimization beyond simulation windows.

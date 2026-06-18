@@ -8,7 +8,7 @@ from typing import Any, Callable
 
 import numpy as np
 from numpy.typing import ArrayLike
-from scipy import stats
+from scipy import linalg, stats
 
 
 ArrayFunction = Callable[[ArrayLike], np.ndarray]
@@ -58,6 +58,79 @@ def _finite_1d(values: ArrayLike, name: str) -> np.ndarray:
     if np.any(~np.isfinite(array)):
         raise ValueError(f"{name} must contain only finite values")
     return array
+
+
+def _phase_type_inputs(
+    initial_probabilities: ArrayLike,
+    subgenerator: ArrayLike,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    initial = _finite_1d(initial_probabilities, "initial_probabilities")
+    if np.any(initial < 0.0):
+        raise ValueError("initial_probabilities must be non-negative")
+    if not np.isclose(float(initial.sum()), 1.0, rtol=0.0, atol=1e-10):
+        raise ValueError("initial_probabilities must sum to one")
+
+    matrix = np.asarray(subgenerator, dtype=float)
+    if matrix.ndim != 2 or matrix.shape[0] != matrix.shape[1] or matrix.shape[0] == 0:
+        raise ValueError("subgenerator must be a non-empty square matrix")
+    if matrix.shape[0] != initial.size:
+        raise ValueError("initial_probabilities and subgenerator dimensions must match")
+    if np.any(~np.isfinite(matrix)):
+        raise ValueError("subgenerator must contain only finite values")
+
+    diagonal = np.diag(matrix)
+    if np.any(diagonal >= 0.0):
+        raise ValueError("subgenerator diagonal entries must be negative")
+    off_diagonal = matrix.copy()
+    np.fill_diagonal(off_diagonal, 0.0)
+    if np.any(off_diagonal < -1e-12):
+        raise ValueError("subgenerator off-diagonal entries must be non-negative")
+
+    row_sums = matrix.sum(axis=1)
+    if np.any(row_sums > 1e-10):
+        raise ValueError("subgenerator row sums must be non-positive")
+    exit_rates = -row_sums
+    if np.any(exit_rates < -1e-10):
+        raise ValueError("subgenerator exit rates must be non-negative")
+
+    eigenvalues = linalg.eigvals(matrix)
+    if np.max(np.real(eigenvalues)) >= -1e-12:
+        raise ValueError("subgenerator must be transient with negative spectral abscissa")
+    return initial.copy(), matrix.copy(), np.maximum(exit_rates, 0.0)
+
+
+def _sample_phase_type(
+    initial: np.ndarray,
+    subgenerator: np.ndarray,
+    exit_rates: np.ndarray,
+    rng: np.random.Generator,
+    n: int,
+) -> np.ndarray:
+    size = _sample_size(n)
+    samples = np.zeros(size, dtype=float)
+    rates = -np.diag(subgenerator)
+    transition_rates = np.maximum(subgenerator.copy(), 0.0)
+    np.fill_diagonal(transition_rates, 0.0)
+
+    for sample_index in range(size):
+        phase = int(rng.choice(initial.size, p=initial))
+        elapsed = 0.0
+        while True:
+            rate = rates[phase]
+            elapsed += float(rng.exponential(1.0 / rate))
+            threshold = float(rng.random() * rate)
+            cumulative = 0.0
+            next_phase = -1
+            for candidate, transition_rate in enumerate(transition_rates[phase]):
+                cumulative += float(transition_rate)
+                if threshold < cumulative:
+                    next_phase = candidate
+                    break
+            if next_phase < 0:
+                samples[sample_index] = elapsed
+                break
+            phase = next_phase
+    return samples
 
 
 @dataclass(frozen=True)
@@ -315,6 +388,79 @@ def mixture_exponential(rates: ArrayLike, weights: ArrayLike | None = None) -> C
         else np.inf,
         laplace_function=lambda s: float(np.sum(weight_array * rate_array / (rate_array + s))),
         metadata={"rates": rate_array.copy(), "weights": weight_array.copy()},
+    )
+
+
+def phase_type(initial_probabilities: ArrayLike, subgenerator: ArrayLike) -> ClaimDistribution:
+    """Continuous phase-type severity distribution.
+
+    ``initial_probabilities`` is the initial probability row vector and
+    ``subgenerator`` is the transient Markov-chain generator ``T``. The density
+    is ``alpha exp(T x) t`` with exit vector ``t = -T 1``.
+    """
+
+    initial, matrix, exit_rates = _phase_type_inputs(initial_probabilities, subgenerator)
+    dimension = initial.size
+    ones = np.ones(dimension, dtype=float)
+    minus_generator = -matrix
+    first = linalg.solve(minus_generator, ones, assume_a="gen")
+    mean_value = float(initial @ first)
+    second = float(2.0 * initial @ linalg.solve(minus_generator, first, assume_a="gen"))
+    variance = max(second - mean_value**2, 0.0)
+    spectral_bound = float(-np.max(np.real(linalg.eigvals(matrix))))
+
+    def survival(x: ArrayLike) -> np.ndarray:
+        values = _as_array(x)
+        flat = values.ravel()
+        result = np.zeros_like(flat, dtype=float)
+        result[flat < 0.0] = 1.0
+        finite = np.isfinite(flat) & (flat >= 0.0)
+        for index in np.where(finite)[0]:
+            result[index] = float(initial @ linalg.expm(matrix * flat[index]) @ ones)
+        return np.clip(result.reshape(values.shape), 0.0, 1.0)
+
+    def cdf(x: ArrayLike) -> np.ndarray:
+        values = _as_array(x)
+        return np.where(values < 0.0, 0.0, 1.0 - survival(values))
+
+    def pdf(x: ArrayLike) -> np.ndarray:
+        values = _as_array(x)
+        flat = values.ravel()
+        result = np.zeros_like(flat, dtype=float)
+        finite = np.isfinite(flat) & (flat >= 0.0)
+        for index in np.where(finite)[0]:
+            result[index] = float(initial @ linalg.expm(matrix * flat[index]) @ exit_rates)
+        return np.maximum(result.reshape(values.shape), 0.0)
+
+    def mgf(t: float) -> float:
+        if t >= spectral_bound:
+            return np.inf
+        system = -t * np.eye(dimension) - matrix
+        return float(initial @ linalg.solve(system, exit_rates, assume_a="gen"))
+
+    def laplace(s: float) -> float:
+        system = s * np.eye(dimension) - matrix
+        return float(initial @ linalg.solve(system, exit_rates, assume_a="gen"))
+
+    def sampler(rng: np.random.Generator, n: int) -> np.ndarray:
+        return _sample_phase_type(initial, matrix, exit_rates, rng, n)
+
+    return ClaimDistribution(
+        name="phase_type",
+        mean_value=mean_value,
+        variance_value=variance,
+        sampler=sampler,
+        cdf_function=cdf,
+        survival_function=survival,
+        pdf_function=pdf,
+        mgf_function=mgf,
+        laplace_function=laplace,
+        metadata={
+            "initial_probabilities": initial.copy(),
+            "subgenerator": matrix.copy(),
+            "exit_rates": exit_rates.copy(),
+            "spectral_bound": spectral_bound,
+        },
     )
 
 

@@ -11,6 +11,8 @@ from ruin_theory import (
     empirical,
     exponential,
     mixture_exponential,
+    phase_type,
+    raw_moment,
 )
 
 
@@ -49,6 +51,39 @@ def test_mixture_exponential_has_zero_density_below_support():
     np.testing.assert_allclose(distribution.pdf(np.array([-1.0, 0.0])), [0.0, 4.25])
     np.testing.assert_allclose(distribution.cdf(np.array([-1.0, 0.0])), [0.0, 0.0])
     np.testing.assert_allclose(distribution.survival(np.array([-1.0, 0.0])), [1.0, 1.0])
+
+
+def test_phase_type_matches_erlang_two_distributional_quantities():
+    distribution = phase_type(
+        initial_probabilities=[1.0, 0.0],
+        subgenerator=[[-2.0, 2.0], [0.0, -2.0]],
+    )
+    x = np.array([0.0, 0.5, 1.0, 2.0])
+
+    np.testing.assert_allclose(distribution.survival(x), np.exp(-2.0 * x) * (1.0 + 2.0 * x))
+    np.testing.assert_allclose(distribution.cdf(x), 1.0 - np.exp(-2.0 * x) * (1.0 + 2.0 * x))
+    np.testing.assert_allclose(distribution.pdf(x), 4.0 * x * np.exp(-2.0 * x), atol=1e-14)
+    assert distribution.mean() == pytest.approx(1.0)
+    assert distribution.variance() == pytest.approx(0.5)
+    assert distribution.mgf(0.5) == pytest.approx((2.0 / 1.5) ** 2)
+    assert distribution.laplace(0.5) == pytest.approx((2.0 / 2.5) ** 2)
+    assert raw_moment(distribution, 2) == pytest.approx(1.5)
+
+    sample = distribution.sample(5000, rng=np.random.default_rng(123))
+    assert sample.shape == (5000,)
+    assert np.all(sample >= 0.0)
+    assert sample.mean() == pytest.approx(1.0, abs=0.05)
+
+
+def test_phase_type_validates_initial_vector_and_subgenerator():
+    with pytest.raises(ValueError, match="sum to one"):
+        phase_type([0.5, 0.4], [[-1.0, 0.0], [0.0, -1.0]])
+    with pytest.raises(ValueError, match="off-diagonal"):
+        phase_type([1.0, 0.0], [[-1.0, -0.1], [0.0, -1.0]])
+    with pytest.raises(ValueError, match="row sums"):
+        phase_type([1.0, 0.0], [[-1.0, 2.0], [0.0, -1.0]])
+    with pytest.raises(ValueError, match="dimensions"):
+        phase_type([1.0, 0.0], [[-1.0]])
 
 
 def test_frequency_model_validates_direct_construction():

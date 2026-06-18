@@ -8,7 +8,7 @@ import operator
 
 import numpy as np
 from numpy.typing import ArrayLike
-from scipy import integrate
+from scipy import integrate, linalg
 
 from .distributions import ClaimDistribution
 
@@ -97,6 +97,16 @@ def _raw_moment(distribution: ClaimDistribution, order: int) -> float:
     if name == "empirical":
         values = np.asarray(distribution.metadata["values"], dtype=float)
         return float(np.mean(values**order))
+    if name == "phase_type":
+        if order == 0:
+            return 1.0
+        initial = np.asarray(distribution.metadata["initial_probabilities"], dtype=float)
+        matrix = np.asarray(distribution.metadata["subgenerator"], dtype=float)
+        minus_generator = -matrix
+        vector = np.ones(initial.size, dtype=float)
+        for _ in range(order):
+            vector = linalg.solve(minus_generator, vector, assume_a="gen")
+        return float(math.factorial(order) * initial @ vector)
     raise NotImplementedError(f"raw moments are not implemented for {name}")
 
 
