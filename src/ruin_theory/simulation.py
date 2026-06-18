@@ -7,7 +7,7 @@ import math
 import numpy as np
 from scipy import stats
 
-from .models import CapitalInjectionModel, RiskProcess
+from .models import CapitalInjectionModel, CramerLundbergProcess, RiskProcess
 from .results import RuinEstimate, SimulationPath
 
 
@@ -33,6 +33,11 @@ def _next_claim_time(
 def _advance_claim_clock(model: RiskProcess, current_time: float, interarrival: float) -> float:
     t = float(current_time)
     remaining = float(interarrival)
+    if not model.prevention.frequency_windows:
+        frequency_multiplier = float(model.prevention.frequency_multiplier)
+        if not math.isfinite(frequency_multiplier):
+            raise ValueError("frequency_multiplier must be finite")
+        return math.inf if frequency_multiplier == 0.0 else t + remaining / frequency_multiplier
 
     for _ in range(2 * len(model.prevention.frequency_windows) + 2):
         frequency_multiplier = float(model.prevention.frequency_multiplier_at(t))
@@ -193,6 +198,80 @@ def _sample_injections(
     return all_times[order], all_sizes[order]
 
 
+def _aggregate_by_counts(values: np.ndarray, counts: np.ndarray) -> np.ndarray:
+    totals = np.zeros(counts.size, dtype=float)
+    if values.size == 0:
+        return totals
+    starts = np.r_[0, np.cumsum(counts[:-1])]
+    nonzero = counts > 0
+    totals[nonzero] = np.add.reduceat(values, starts[nonzero])
+    return totals
+
+
+def _poisson_frequency_exposure(model: CramerLundbergProcess, horizon: float) -> float:
+    base_rate = model.frequency.mean_rate()
+    base_multiplier = float(model.prevention.frequency_multiplier)
+    exposure = base_multiplier * horizon
+    for start, end, multiplier in model.prevention.frequency_windows:
+        overlap = max(0.0, min(end, horizon) - start)
+        exposure += overlap * (multiplier - base_multiplier)
+    return base_rate * exposure
+
+
+def _validate_sample(values: np.ndarray, expected_size: int, name: str) -> np.ndarray:
+    samples = np.asarray(values, dtype=float)
+    if samples.shape != (expected_size,):
+        raise ValueError(f"{name} must return one value per sampled event")
+    if np.any(~np.isfinite(samples)) or np.any(samples < 0):
+        raise ValueError(f"{name} must contain finite non-negative values")
+    return samples
+
+
+def _simulate_terminal_reserves_cramer_lundberg(
+    model: CramerLundbergProcess,
+    horizon: float,
+    n_simulations: int,
+    rng: np.random.Generator,
+) -> np.ndarray:
+    counts = rng.poisson(_poisson_frequency_exposure(model, horizon), size=n_simulations)
+    total_claims = int(counts.sum())
+    claim_totals = np.zeros(n_simulations, dtype=float)
+    if total_claims > 0:
+        primary = _validate_sample(
+            model.prevention.apply_severity(model.claim_distribution.sample(total_claims, rng=rng)),
+            total_claims,
+            "claim distribution",
+        )
+        claim_totals += _aggregate_by_counts(primary, counts)
+        for by_claim in model.by_claims:
+            secondary = _validate_sample(
+                by_claim.sample_total(total_claims, rng=rng),
+                total_claims,
+                "by-claim model",
+            )
+            claim_totals += _aggregate_by_counts(secondary, counts)
+
+    injection_totals = np.zeros(n_simulations, dtype=float)
+    for injection in model.capital_injections:
+        injection_counts = rng.poisson(injection.rate * horizon, size=n_simulations)
+        total_injections = int(injection_counts.sum())
+        if total_injections == 0:
+            continue
+        sampled_sizes = _validate_sample(
+            injection.distribution.sample(total_injections, rng=rng),
+            total_injections,
+            "capital injection distribution",
+        )
+        injection_totals += _aggregate_by_counts(sampled_sizes, injection_counts)
+
+    return (
+        model.initial_capital
+        + model.premium_rate * horizon
+        - claim_totals
+        + injection_totals
+    )
+
+
 def estimate_ruin_probability(
     model: RiskProcess,
     horizon: float,
@@ -267,7 +346,13 @@ def simulate_terminal_reserves(
 ) -> np.ndarray:
     """Return terminal reserves for stress testing and diagnostics."""
 
+    if not math.isfinite(horizon) or horizon <= 0:
+        raise ValueError("horizon must be positive and finite")
+    if n_simulations <= 0:
+        raise ValueError("n_simulations must be positive")
     rng = np.random.default_rng(seed)
+    if isinstance(model, CramerLundbergProcess):
+        return _simulate_terminal_reserves_cramer_lundberg(model, horizon, n_simulations, rng)
     return np.array(
         [
             simulate_path(model, horizon, seed=rng, stop_at_ruin=False).terminal_reserve

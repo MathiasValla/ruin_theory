@@ -2,11 +2,14 @@ import numpy as np
 import pytest
 
 from ruin_theory import (
+    ByClaimModel,
+    CapitalInjectionModel,
     CramerLundbergProcess,
     PreventionProgram,
     SparreAndersenProcess,
     adjustment_coefficient,
     cramer_lundberg_asymptotic,
+    de_vylder_approximation,
     deterministic,
     exponential,
     finite_time_ruin_exponential,
@@ -93,6 +96,17 @@ def test_closed_form_formulas_reject_non_classical_or_windowed_frequency():
     )
     with pytest.raises(ValueError, match="stationary frequency"):
         adjustment_coefficient(windowed)
+
+
+def test_formula_surplus_inputs_reject_nan():
+    model = CramerLundbergProcess(
+        premium_rate=1,
+        claim_arrival_rate=3,
+        claim_distribution=exponential(rate=5),
+    )
+
+    with pytest.raises(ValueError, match="NaN"):
+        ultimate_ruin_exponential(model, [0.0, np.nan])
 
 
 def test_lundberg_bound_dominates_exact_exponential_ruin():
@@ -244,3 +258,62 @@ def test_adjustment_coefficient_requires_net_profit_condition():
     )
     with pytest.raises(ValueError, match="net profit"):
         adjustment_coefficient(model)
+
+
+def test_de_vylder_rejects_non_classical_extensions():
+    renewal = SparreAndersenProcess(
+        premium_rate=1,
+        interarrival_distribution=exponential(rate=3),
+        claim_distribution=exponential(rate=5),
+    )
+    with pytest.raises(ValueError, match="CramerLundbergProcess"):
+        de_vylder_approximation(renewal, [0.0])
+
+    windowed = CramerLundbergProcess(
+        premium_rate=1,
+        claim_arrival_rate=3,
+        claim_distribution=exponential(rate=5),
+        prevention=PreventionProgram(frequency_windows=((1.0, 2.0, 0.5),)),
+    )
+    with pytest.raises(ValueError, match="stationary frequency"):
+        de_vylder_approximation(windowed, [0.0])
+
+    by_claim = CramerLundbergProcess(
+        premium_rate=10,
+        claim_arrival_rate=1,
+        claim_distribution=exponential(rate=5),
+        by_claims=(ByClaimModel(probability=0.5, distribution=deterministic(1), count_mean=1),),
+    )
+    with pytest.raises(ValueError, match="by-claims"):
+        de_vylder_approximation(by_claim, [0.0])
+
+    injected = CramerLundbergProcess(
+        premium_rate=10,
+        claim_arrival_rate=1,
+        claim_distribution=exponential(rate=5),
+        capital_injections=(CapitalInjectionModel(rate=1, distribution=deterministic(1)),),
+    )
+    with pytest.raises(ValueError, match="capital injections"):
+        de_vylder_approximation(injected, [0.0])
+
+
+def test_heavy_tail_custom_tail_keeps_model_support_checks():
+    def custom_tail(x):
+        return np.ones_like(x, dtype=float)
+
+    renewal = SparreAndersenProcess(
+        premium_rate=4,
+        interarrival_distribution=exponential(rate=1),
+        claim_distribution=pareto(shape=3.0, scale=1.0),
+    )
+    with pytest.raises(ValueError, match="CramerLundbergProcess"):
+        heavy_tail_integrated_tail_asymptotic(renewal, [1.0], custom_tail)
+
+    by_claim = CramerLundbergProcess(
+        premium_rate=10,
+        claim_arrival_rate=1,
+        claim_distribution=pareto(shape=3.0, scale=1.0),
+        by_claims=(ByClaimModel(probability=0.5, distribution=deterministic(1), count_mean=1),),
+    )
+    with pytest.raises(ValueError, match="by-claims"):
+        heavy_tail_integrated_tail_asymptotic(by_claim, [1.0], custom_tail)

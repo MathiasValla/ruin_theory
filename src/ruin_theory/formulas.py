@@ -15,6 +15,8 @@ from .models import CramerLundbergProcess, RiskProcess
 
 def _as_array(u: ArrayLike) -> np.ndarray:
     values = np.asarray(u, dtype=float)
+    if np.any(np.isnan(values)):
+        raise ValueError("initial surplus values must not contain NaN")
     if np.any(values < 0):
         raise ValueError("initial surplus values must be non-negative")
     return values
@@ -618,26 +620,25 @@ def pollaczek_khinchine_monte_carlo(
         starts = np.r_[0, np.cumsum(counts[:-1])]
         nonzero = counts > 0
         sums[nonzero] = np.add.reduceat(samples, starts[nonzero])
-    estimates = np.array([np.mean(sums > level) for level in surplus.ravel()])
+    flat_surplus = surplus.ravel()
+    if flat_surplus.size <= math.log2(n_simulations):
+        estimates = np.array([np.mean(sums > level) for level in flat_surplus])
+    else:
+        sorted_sums = np.sort(sums)
+        estimates = (
+            n_simulations - np.searchsorted(sorted_sums, flat_surplus, side="right")
+        ) / n_simulations
     return estimates.reshape(surplus.shape)
 
 
 def de_vylder_approximation(model: CramerLundbergProcess, u: ArrayLike) -> np.ndarray:
     """Three-moment De Vylder exponential approximation."""
 
+    _primary_claim_formula_check(model)
     mean = model.claim_distribution.mean()
     second = _raw_moment(model.claim_distribution, 2)
     if not np.isfinite(second):
         raise ValueError("finite second moment is required")
-    unsupported_extensions = (
-        model.by_claims
-        or model.capital_injections
-        or model.prevention.severity_transform is not None
-    )
-    if unsupported_extensions:
-        raise NotImplementedError(
-            "De Vylder approximation currently supports scaled primary claims only"
-        )
     scale = _severity_scale(model)
     m1 = scale * mean
     m2 = scale**2 * second
@@ -645,7 +646,7 @@ def de_vylder_approximation(model: CramerLundbergProcess, u: ArrayLike) -> np.nd
     if not np.isfinite(m3):
         raise ValueError("finite third moment is required")
     lam_tilde = 9.0 * model.claim_arrival_rate * m2**3 / (2.0 * m3**2)
-    mean_tilde = 2.0 * m3 / (3.0 * m2)
+    mean_tilde = m3 / (3.0 * m2)
     c_tilde = model.premium_rate - model.claim_arrival_rate * m1 + lam_tilde * mean_tilde
     rate_tilde = 1.0 / mean_tilde
     approx_model = CramerLundbergProcess(
@@ -676,9 +677,8 @@ def heavy_tail_integrated_tail_asymptotic(
     omitted, the built-in helper is used for the model's scaled primary severity.
     """
 
+    _primary_claim_formula_check(model)
     surplus = _as_array(u)
-    if integrated_tail_survival is None:
-        _primary_claim_formula_check(model)
     rho = model.claim_intensity / model.premium_rate
     if not 0.0 <= rho < 1.0:
         raise ValueError("rho must lie in [0, 1)")

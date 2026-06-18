@@ -11,7 +11,11 @@ from ruin_theory import (
     deterministic,
     exponential,
 )
-from ruin_theory.simulation import estimate_ruin_probability, simulate_path
+from ruin_theory.simulation import (
+    estimate_ruin_probability,
+    simulate_path,
+    simulate_terminal_reserves,
+)
 
 
 class FixedByClaim(ByClaimModel):
@@ -207,3 +211,35 @@ def test_monte_carlo_rejects_unknown_ci_method():
 
     with pytest.raises(ValueError, match="ci_method"):
         estimate_ruin_probability(model, horizon=1, n_simulations=5, ci_method="exact")
+
+
+def test_terminal_reserve_simulation_rejects_non_positive_count():
+    model = CramerLundbergProcess(claim_distribution=deterministic(1))
+
+    with pytest.raises(ValueError, match="n_simulations"):
+        simulate_terminal_reserves(model, horizon=1, n_simulations=0)
+
+
+def test_terminal_reserve_fast_path_matches_compound_poisson_mean():
+    model = CramerLundbergProcess(
+        initial_capital=5,
+        premium_rate=1,
+        claim_arrival_rate=2,
+        claim_distribution=deterministic(2),
+        prevention=PreventionProgram(
+            frequency_multiplier=0.5,
+            frequency_windows=((1.0, 3.0, 2.0),),
+        ),
+        by_claims=(ByClaimModel(probability=1, distribution=deterministic(3), count_mean=1),),
+        capital_injections=(CapitalInjectionModel(rate=4, distribution=deterministic(2)),),
+    )
+
+    horizon = 4.0
+    reserves = simulate_terminal_reserves(model, horizon, n_simulations=80_000, seed=123)
+    frequency_exposure = 2.0 * (0.5 * horizon + (3.0 - 1.0) * (2.0 - 0.5))
+    expected_claims = frequency_exposure * (2.0 + 3.0)
+    expected_injections = 4.0 * horizon * 2.0
+    expected = 5.0 + horizon - expected_claims + expected_injections
+
+    assert reserves.shape == (80_000,)
+    assert reserves.mean() == pytest.approx(expected, abs=0.25)

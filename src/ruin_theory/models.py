@@ -233,11 +233,8 @@ class ByClaimModel:
         if total_secondary == 0:
             return totals
         sizes = self.distribution.sample(total_secondary, rng=rng)
-        offset = 0
-        for target, count in zip(np.flatnonzero(triggered), counts):
-            if count:
-                totals[target] = float(np.sum(sizes[offset : offset + count]))
-                offset += count
+        targets = np.repeat(np.flatnonzero(triggered), counts)
+        totals += np.bincount(targets, weights=sizes, minlength=size)
         return totals
 
     def sample_counts(self, n_triggered: int, rng: np.random.Generator) -> np.ndarray:
