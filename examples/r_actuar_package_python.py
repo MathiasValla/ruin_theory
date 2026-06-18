@@ -8,9 +8,8 @@ Running this script creates:
   plotting helpers.
 
 The code uses the public ``ruin_theory`` package for distributions, models,
-closed forms, simulation and plotting. A small local Panjer recursion helper is
-included only to reproduce the Beekman/Panjer table from the actuar note; this
-is a planned package feature rather than a public API today.
+closed forms, loss discretization, Panjer/Pollaczek-Khinchine approximations,
+simulation and plotting.
 """
 
 from __future__ import annotations
@@ -32,6 +31,8 @@ from ruin_theory import (
     PreventionProgram,
     adjustment_coefficient,
     cramer_lundberg_asymptotic,
+    discretize,
+    discrete_pollaczek_khinchine_ultimate_ruin,
     estimate_ruin_probability,
     exponential,
     heavy_tail_integrated_tail_asymptotic,
@@ -169,48 +170,6 @@ def _lomax_claim(shape: float, scale: float) -> ClaimDistribution:
     )
 
 
-def _lomax_cdf(x: np.ndarray | float, *, shape: float, scale: float) -> np.ndarray:
-    values = np.asarray(x, dtype=float)
-    return np.where(values < 0.0, 0.0, 1.0 - (scale / (scale + values)) ** shape)
-
-
-def _discretize_lomax_equilibrium(method: str, *, to: int = 200, step: int = 1) -> np.ndarray:
-    """actuar-style lower/upper discretization for H(x)=Pareto(4,4)."""
-
-    if method == "lower":
-        grid = np.arange(0, to + step, step)
-        masses = np.empty_like(grid, dtype=float)
-        masses[0] = _lomax_cdf(0.0, shape=4.0, scale=4.0)
-        masses[1:] = _lomax_cdf(grid[1:], shape=4.0, scale=4.0) - _lomax_cdf(
-            grid[:-1],
-            shape=4.0,
-            scale=4.0,
-        )
-        return masses
-    if method == "upper":
-        grid = np.arange(0, to, step)
-        return _lomax_cdf(grid + step, shape=4.0, scale=4.0) - _lomax_cdf(
-            grid,
-            shape=4.0,
-            scale=4.0,
-        )
-    raise ValueError("method must be 'lower' or 'upper'")
-
-
-def _compound_geometric_cdf(severity_pmf: np.ndarray, *, probability: float) -> np.ndarray:
-    """Compound geometric CDF for N on {0, 1, ...} with P(N=n)=p(1-p)^n."""
-
-    masses = np.asarray(severity_pmf, dtype=float)
-    p = float(probability)
-    q = 1.0 - p
-    aggregate = np.zeros_like(masses)
-    aggregate[0] = p / (1.0 - q * masses[0])
-    scale = q / (1.0 - q * masses[0])
-    for k in range(1, masses.size):
-        aggregate[k] = scale * sum(masses[j] * aggregate[k - j] for j in range(1, k + 1))
-    return np.cumsum(aggregate)
-
-
 def compute_actuar_tables() -> ActuarTables:
     adjustment_model = CramerLundbergProcess(
         premium_rate=2.4,
@@ -245,10 +204,9 @@ def compute_actuar_tables() -> ActuarTables:
         claim_distribution=mixture_exponential(rates=[3.0, 7.0], weights=[0.5, 0.5]),
     )
 
-    f_lower = _discretize_lomax_equilibrium("lower")
-    f_upper = _discretize_lomax_equilibrium("upper")
-    cdf_lower = _compound_geometric_cdf(f_lower, probability=1.0 / 6.0)
-    cdf_upper = _compound_geometric_cdf(f_upper, probability=1.0 / 6.0)
+    equilibrium = _lomax_claim(shape=4.0, scale=4.0)
+    f_lower = discretize(equilibrium, from_=0.0, to=200.0, step=1.0, method="lower").pmf
+    f_upper = discretize(equilibrium, from_=0.0, to=200.0, step=1.0, method="upper").pmf
     grid = np.arange(0, 55, 5)
 
     return ActuarTables(
@@ -259,8 +217,18 @@ def compute_actuar_tables() -> ActuarTables:
         exponential_ruin=ultimate_ruin_exponential(exponential_model, u),
         hyperexponential_ruin=ultimate_ruin_hyperexponential(hyper_model, u),
         beekman_grid=grid,
-        beekman_lower=1.0 - cdf_upper[grid],
-        beekman_upper=1.0 - cdf_lower[grid],
+        beekman_lower=discrete_pollaczek_khinchine_ultimate_ruin(
+            f_upper,
+            grid,
+            step=1.0,
+            rho=5.0 / 6.0,
+        ),
+        beekman_upper=discrete_pollaczek_khinchine_ultimate_ruin(
+            f_lower,
+            grid,
+            step=1.0,
+            rho=5.0 / 6.0,
+        ),
     )
 
 
@@ -445,6 +413,7 @@ def build_pdf(tables: ActuarTables, figures: list[tuple[plt.Figure, Path]]) -> N
                 [
                     "This report mirrors the ruin-theory code examples from R_actuar_package.pdf.",
                     "It uses ruin_theory for Cramer-Lundberg models, exact formulas,",
+                    "loss discretization, Panjer/Pollaczek-Khinchine approximations,",
                     "Monte Carlo simulation, and plotting diagnostics.",
                     "",
                     "Generated artifacts:",
@@ -459,8 +428,8 @@ def build_pdf(tables: ActuarTables, figures: list[tuple[plt.Figure, Path]]) -> N
         cover.text(
             0.06,
             0.16,
-            "Note: the Beekman/Panjer bounds use a local helper that reproduces actuar's\n"
-            "discretize + aggregateDist workflow. A public aggregate-distribution API is planned.",
+            "Note: the Beekman/Panjer bounds are produced with the package-level\n"
+            "discretize and discrete Pollaczek-Khinchine routines.",
             fontsize=10,
             color="#4b5563",
         )
@@ -541,16 +510,12 @@ def build_pdf(tables: ActuarTables, figures: list[tuple[plt.Figure, Path]]) -> N
                     "Implemented through public package APIs:",
                     "- exponential and hyperexponential ultimate ruin formulas;",
                     "- adjustment coefficients and Lundberg bounds;",
+                    "- severity discretization and compound-geometric Panjer recursion;",
                     "- heavy-tail integrated-tail asymptotics;",
                     "- trajectory, ruin-time, terminal-reserve and ruin-curve plotting.",
                     "",
-                    "Local helper in this example:",
-                    "- lower/upper discretization and compound-geometric Panjer recursion",
-                    "  for the Beekman table.",
-                    "",
                     "Planned public APIs:",
                     "- phase-type distributions and matrix-exponential ruin formulas;",
-                    "- actuar-style aggregateDist/discretize equivalents;",
                     "- Gerber-Shiu penalties and INAR/BINAR by-claim models.",
                 ]
             ),

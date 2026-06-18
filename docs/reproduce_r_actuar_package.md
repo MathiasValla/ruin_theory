@@ -114,10 +114,10 @@ P(x) = 1 - (4 / (4 + x))^5
 ```
 
 with mean 1 and safety loading 20 percent. The equilibrium distribution is
-again Lomax, now with shape 4 and scale 4. The example script includes local
-actuar-style lower/upper discretization and compound-geometric Panjer recursion
-helpers so that the table is reproducible before the package grows a formal
-`aggregateDist` equivalent.
+again Lomax, now with shape 4 and scale 4. The example uses the package-level
+discrete Pollaczek-Khinchine/Panjer machinery: lower/upper endpoint
+discretization of the equilibrium severity followed by a compound-geometric
+recursion for the all-time maximum.
 
 Expected output:
 
@@ -136,16 +136,12 @@ u    lower       upper
 50  0.0007877  0.01043
 ```
 
-## Not Yet Reproduced As Package APIs
+## Remaining Gaps
 
-The PDF also demonstrates phase-type ruin computations and the general
-`aggregateDist` interface. Those require planned package features:
+The package now includes the general building blocks needed for the visible
+discretization, Panjer, VaR and TVaR examples. The PDF also demonstrates
+phase-type ruin computations that require planned package features:
 
 - phase-type distributions and matrix-exponential ruin formulas;
-- general discretization helpers;
-- Panjer recursion as a reusable aggregate-distribution object;
-- quantile, mean, VaR and TVaR methods for aggregate distributions.
-
-The local reproduction script isolates just enough helper code to reproduce the
-published numbers, while keeping the public package API honest about what is
-implemented today.
+- phase-type interarrival times in the deterministic ruin solvers;
+- matrix-based Gerber-Shiu quantities.

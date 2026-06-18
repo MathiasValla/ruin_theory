@@ -10,6 +10,7 @@ from numpy.typing import ArrayLike
 from scipy import integrate, optimize, special
 
 from .distributions import ClaimDistribution
+from .losses import _raw_moment
 from .models import CramerLundbergProcess, RiskProcess
 
 
@@ -63,48 +64,6 @@ def _aggregate_claim_mgf(model: CramerLundbergProcess, r: float) -> float:
         by_mgf = by_claim.distribution.mgf(r)
         total *= (1.0 - by_claim.probability) + by_claim.probability * by_claim.count_pgf(by_mgf)
     return float(total)
-
-
-def _raw_moment(distribution: ClaimDistribution, order: int) -> float:
-    if order < 0:
-        raise ValueError("order must be non-negative")
-    name = distribution.name
-    if name == "exponential":
-        rate = float(distribution.metadata["rate"])
-        return math.factorial(order) / rate**order
-    if name == "gamma":
-        shape = float(distribution.metadata["shape"])
-        scale = float(distribution.metadata["scale"])
-        return scale**order * math.gamma(shape + order) / math.gamma(shape)
-    if name == "erlang":
-        shape = int(distribution.metadata["shape"])
-        rate = float(distribution.metadata["rate"])
-        scale = 1.0 / rate
-        return scale**order * math.gamma(shape + order) / math.gamma(shape)
-    if name == "mixture_exponential":
-        rates = np.asarray(distribution.metadata["rates"], dtype=float)
-        weights = np.asarray(distribution.metadata["weights"], dtype=float)
-        return float(np.sum(weights * math.factorial(order) / rates**order))
-    if name == "deterministic":
-        return float(distribution.metadata["value"]) ** order
-    if name == "pareto":
-        shape = float(distribution.metadata["shape"])
-        scale = float(distribution.metadata["scale"])
-        if shape <= order:
-            return float("inf")
-        return shape * scale**order / (shape - order)
-    if name == "lognormal":
-        meanlog = float(distribution.metadata["meanlog"])
-        sdlog = float(distribution.metadata["sdlog"])
-        return float(math.exp(order * meanlog + 0.5 * order**2 * sdlog**2))
-    if name == "weibull":
-        shape = float(distribution.metadata["shape"])
-        scale = float(distribution.metadata["scale"])
-        return scale**order * math.gamma(1.0 + order / shape)
-    if name == "empirical":
-        values = np.asarray(distribution.metadata["values"], dtype=float)
-        return float(np.mean(values**order))
-    raise NotImplementedError(f"raw moments are not implemented for {name}")
 
 
 def _sample_integrated_tail(

@@ -7,11 +7,14 @@ The first release focuses on a reliable computational core:
 - Severity distributions with moment, survival, Laplace and MGF helpers.
 - Prevention programs acting on claim frequency and/or claim severity.
 - By-claims and independent capital injections in simulation.
+- Loss moments, coverage transformations and lattice discretization.
+- Aggregate-loss distributions by Panjer recursion, with VaR and TVaR helpers.
 - Exact Cramer-Lundberg formulas where implemented; simulation otherwise.
 - Monte Carlo estimators, trajectory simulation and plotting diagnostics.
 
 The package is being built from the notation and computational priorities in
-Asmussen and Albrecher, *Ruin Probabilities*, and the R `actuar::ruin` API style.
+Asmussen and Albrecher, *Ruin Probabilities*, Lefevre's ruin-theory notes, and
+published actuarial software examples used as numerical reference checks.
 
 ## Documentation
 
@@ -79,6 +82,10 @@ Cramer-Lundberg primary-claim models with linear severity scaling:
 - finite-time ruin for exponential severities;
 - Lundberg adjustment coefficients, bounds and light-tail asymptotics;
 - Pollaczek-Khinchine Monte Carlo via equilibrium claim sampling;
+- discrete Pollaczek-Khinchine/Panjer approximations for ultimate ruin;
+- limited moments, coverage transformations and severity discretization;
+- Panjer aggregate distributions for Poisson, binomial, geometric and
+  negative-binomial frequencies;
 - De Vylder three-moment approximation for supported severity families.
 
 Sparre-Andersen arrivals, by-claims, capital injections and nonlinear prevention
@@ -89,10 +96,11 @@ extensions rather than completed APIs.
 
 Core references include Lundberg (1903, 1926), Cramer (1930, 1955), Sparre
 Andersen (1957), Gerber (1979), Rolski et al. (1999), and Asmussen and
-Albrecher (2010). The actuarial API and examples follow Dutang, Goulet and
-Pigeon (2008) and Goulet's `actuar` ruin-theory notes. Prevention features are
-guided by Ehrlich and Becker (1972), Gauchon et al. (2020, 2021), Schmidli
-(2008), and the seasonal-prevention manuscript by Minier, Valla and Lefevre.
+Albrecher (2010). Numerical validation examples and software comparisons cite
+Dutang, Goulet and Pigeon (2008) and Goulet's `actuar` ruin-theory notes.
+Prevention features are guided by Ehrlich and Becker (1972), Gauchon et al.
+(2020, 2021), Schmidli (2008), and the seasonal-prevention manuscript by
+Minier, Valla and Lefevre.
 
 Claude Lefevre's lecture notes and comments helped orient the mathematical
 reading for this project; formal references cite the original scientific

@@ -44,6 +44,93 @@ hyper = mixture_exponential(rates=[3.0, 7.0], weights=[0.5, 0.5])
 print(hyper.mgf(0.5))
 ```
 
+## Loss Utilities
+
+These helpers operate on severity laws and observed losses before they enter a
+risk process or an aggregate-loss recursion.
+
+Available functions:
+
+- `raw_moment(distribution, order=1)`: returns `E[X**order]`.
+- `limited_moment(distribution, limit, order=1, epsabs=1e-10)`: returns
+  `E[min(X, limit)**order]`; `limit` may be scalar or array-like.
+- `empirical_moment(data, order=1)` and
+  `empirical_limited_moment(data, limit, order=1)`: empirical counterparts for
+  one-dimensional non-negative observations.
+- `coverage_transform(distribution_or_losses, deductible=0, limit=None,
+  coinsurance=1, inflation=1, franchise=False, franchise_deductible=None)`:
+  applies ordinary or franchise coverage. It returns transformed payments for
+  arrays and a transformed `ClaimDistribution` for distributions.
+- `discretize(distribution, from_=0, to=..., step=..., method="upper")`:
+  returns a `DiscretizedDistribution` with `support`, `pmf`, `step`,
+  `total_mass`, `mean`, and `cdf(x)`.
+
+`discretize` supports four endpoint/moment-matching methods:
+
+- `"upper"`: interval mass `(x, x+h]` is allocated to the left endpoint.
+- `"lower"`: interval mass `(x-h, x]` is allocated to the right endpoint.
+- `"rounding"`: interval mass around the nearest grid point.
+- `"unbiased"`: local first-moment matching on the grid.
+
+Minimal example:
+
+```python
+import numpy as np
+from ruin_theory import coverage_transform, discretize, exponential, limited_moment
+
+claims = exponential(rate=2.0)
+print(limited_moment(claims, np.array([1.0, 2.0])))
+
+covered = coverage_transform(claims, deductible=0.5, limit=2.0, coinsurance=0.8)
+grid = discretize(covered, from_=0.0, to=5.0, step=0.25, method="unbiased")
+print(grid.total_mass, grid.mean)
+```
+
+## Aggregate Loss Distributions
+
+`AggregateDistribution` represents a finite lattice approximation of an
+aggregate loss `S = X_1 + ... + X_N`. Its probability mass can sum below one
+when the infinite tail was intentionally truncated.
+
+Constructor arguments:
+
+- `grid`: strictly increasing support values.
+- `pmf`: non-negative probabilities with total mass at most one.
+- `name`: optional label.
+- `metadata`: optional dictionary of construction details.
+
+Useful methods:
+
+- `cdf(x)` and `survival(x)`.
+- `ppf(q)`, `quantile(q)`, `value_at_risk(q)`.
+- `mean()` and `variance()`.
+- `tail_value_at_risk(level, allow_truncated=False)`.
+
+Panjer recursion:
+
+- `panjer_recursion(severity_pmf, frequency, frequency_params=None,
+  max_aggregate=None, support=None, grid_step=1, normalize_severity=False,
+  name=None)`.
+- `compound_poisson_distribution(severity_pmf, rate=None, mean=None, ...)` is a
+  convenience wrapper.
+
+Supported frequency laws are Poisson, binomial, geometric, and negative
+binomial. `severity_pmf[j]` is the mass at amount `j * grid_step`, unless an
+explicit equally spaced `support` starting at zero is supplied.
+
+Minimal example:
+
+```python
+from ruin_theory import compound_poisson_distribution
+
+aggregate = compound_poisson_distribution(
+    severity_pmf=[0.7, 0.2, 0.1],
+    rate=3.0,
+    max_aggregate=20,
+)
+print(aggregate.mean(), aggregate.value_at_risk(0.95))
+```
+
 ## Risk Processes
 
 ### `CramerLundbergProcess`
@@ -304,6 +391,14 @@ Available functions:
   `C exp(-gamma u)`.
 - `pollaczek_khinchine_monte_carlo(model, u, n_simulations=50000, seed=None)`:
   ultimate ruin estimator via the geometric-sum representation.
+- `ultimate_ruin_panjer(model, u=None, step=..., max_value=...,
+  discretization="upper")`: deterministic lattice approximation of ultimate
+  ruin using the Pollaczek-Khinchine compound-geometric representation.
+- `discrete_pollaczek_khinchine_ultimate_ruin(ladder_height_pmf, surplus,
+  step=1, rho=..., max_aggregate=None)`: lower-level lattice ruin probability
+  from a discretized equilibrium severity law.
+- `equilibrium_severity_pmf(distribution, step=..., max_value=...,
+  method="upper")`: discretized integrated-tail severity distribution.
 - `de_vylder_approximation(model, u)`: three-moment exponential approximation.
 - `integrated_tail_survival(distribution, u, scale=1.0)`: equilibrium tail
   `E[(scale X - u)_+] / E[scale X]` for supported severity families.
@@ -331,6 +426,21 @@ u = np.array([0.0, 1.0, 2.0])
 gamma = adjustment_coefficient(model)
 print(ultimate_ruin_exponential(model, u))
 print(lundberg_bound(model, u, gamma=gamma))
+```
+
+Panjer/Pollaczek-Khinchine example:
+
+```python
+import numpy as np
+from ruin_theory import CramerLundbergProcess, exponential, ultimate_ruin_panjer
+
+model = CramerLundbergProcess(
+    premium_rate=1.0,
+    claim_arrival_rate=0.5,
+    claim_distribution=exponential(rate=1.0),
+)
+u = np.array([0.0, 1.0, 2.0, 4.0])
+print(ultimate_ruin_panjer(model, u, step=0.05, max_value=30.0))
 ```
 
 ## Plotting
@@ -379,6 +489,9 @@ Implemented now:
 
 - Classical Cramer-Lundberg exact formulas for exponential and hyperexponential
   primary claims.
+- Loss moments, coverage transformations and lattice discretization.
+- Aggregate-loss distributions by Panjer recursion for common counting laws.
+- Deterministic Pollaczek-Khinchine/Panjer ruin approximations.
 - Renewal and prevention-rich models in simulation.
 - By-claims with Poisson or geometric secondary counts.
 - Equilibrium-tail helper and heavy-tail asymptotic path.
@@ -387,8 +500,7 @@ Implemented now:
 Planned extensions:
 
 - Phase-type and matrix-exponential severity/wait models.
-- Panjer recursion and aggregate-claim distribution objects.
-- Actuar-style limited moments and coverage transformations.
+- General phase-type aggregate and ruin solvers.
 - Gerber-Shiu penalties with surplus-before-ruin and deficit-at-ruin records.
 - Discrete-time INAR/BINAR by-claim processes.
 - Seasonal/periodic prevention optimization beyond simulation windows.

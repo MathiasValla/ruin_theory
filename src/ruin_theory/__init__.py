@@ -1,5 +1,15 @@
 """Ruin theory models, formulas, simulation and diagnostics."""
 
+from .losses import (
+    DiscretizedDistribution,
+    coverage_transform,
+    discretize,
+    empirical_limited_moment,
+    empirical_moment,
+    limited_moment,
+    raw_moment,
+)
+from .aggregate import AggregateDistribution, compound_poisson_distribution, panjer_recursion
 from .distributions import (
     ClaimDistribution,
     deterministic,
@@ -36,6 +46,14 @@ from .models import (
     RiskProcess,
     SparreAndersenProcess,
 )
+from .renewal import (
+    PanjerRuinResult,
+    compound_geometric_pmf,
+    discrete_pollaczek_khinchine_ultimate_ruin,
+    equilibrium_severity_pmf,
+    ladder_height_pmf_from_severity,
+    ultimate_ruin_panjer,
+)
 from .plotting import (
     plot_path,
     plot_paths,
@@ -47,21 +65,31 @@ from .results import RuinEstimate, SimulationPath
 from .simulation import estimate_ruin_probability, simulate_path, simulate_terminal_reserves
 
 __all__ = [
+    "AggregateDistribution",
     "ByClaimModel",
     "CapitalInjectionModel",
     "ClaimDistribution",
     "CramerLundbergProcess",
+    "DiscretizedDistribution",
     "FrequencyModel",
     "PreventionProgram",
+    "PanjerRuinResult",
     "RiskProcess",
     "RuinEstimate",
     "SimulationPath",
     "SparreAndersenProcess",
     "adjustment_coefficient",
+    "coverage_transform",
     "cramer_lundberg_asymptotic",
     "de_vylder_approximation",
     "deterministic",
+    "discretize",
+    "compound_geometric_pmf",
+    "discrete_pollaczek_khinchine_ultimate_ruin",
+    "equilibrium_severity_pmf",
     "empirical",
+    "empirical_limited_moment",
+    "empirical_moment",
     "erlang",
     "estimate_ruin_probability",
     "expected_time_to_ruin_exponential",
@@ -70,21 +98,27 @@ __all__ = [
     "gamma",
     "heavy_tail_integrated_tail_asymptotic",
     "integrated_tail_survival",
+    "ladder_height_pmf_from_severity",
     "lognormal",
     "lundberg_bound",
+    "limited_moment",
     "mixture_exponential",
+    "compound_poisson_distribution",
     "pareto",
+    "panjer_recursion",
     "plot_path",
     "plot_paths",
     "plot_ruin_curve",
     "plot_ruin_time_histogram",
     "plot_terminal_reserve_distribution",
     "pollaczek_khinchine_monte_carlo",
+    "raw_moment",
     "safety_loading",
     "scipy_distribution",
     "simulate_path",
     "simulate_terminal_reserves",
     "ultimate_ruin_exponential",
     "ultimate_ruin_hyperexponential",
+    "ultimate_ruin_panjer",
     "weibull",
 ]

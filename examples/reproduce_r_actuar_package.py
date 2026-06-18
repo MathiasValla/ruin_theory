@@ -6,9 +6,6 @@ The examples below mirror the visible numerical outputs in the actuar note:
 - proportional reinsurance adjustment coefficients;
 - ``ruin`` for exponential/exponential and hyperexponential/exponential models;
 - Beekman's convolution/Panjer bounds for the Pareto example.
-
-The small Panjer/discretization helpers are kept local to this example because
-the package does not yet expose an aggregate-claim distribution API.
 """
 
 from __future__ import annotations
@@ -19,6 +16,8 @@ from ruin_theory import (
     ClaimDistribution,
     CramerLundbergProcess,
     adjustment_coefficient,
+    discretize,
+    discrete_pollaczek_khinchine_ultimate_ruin,
     exponential,
     heavy_tail_integrated_tail_asymptotic,
     mixture_exponential,
@@ -56,52 +55,6 @@ def _lomax_claim(shape: float, scale: float) -> ClaimDistribution:
         survival_function=survival,
         metadata={"shape": shape, "scale": scale},
     )
-
-
-def _lomax_cdf(x: np.ndarray | float, *, shape: float, scale: float) -> np.ndarray:
-    values = np.asarray(x, dtype=float)
-    return np.where(values < 0.0, 0.0, 1.0 - (scale / (scale + values)) ** shape)
-
-
-def _discretize_lomax_equilibrium(method: str, *, to: int = 200, step: int = 1) -> np.ndarray:
-    """actuar-style lower/upper discretization for H(x)=Pareto(4,4)."""
-
-    if method == "lower":
-        grid = np.arange(0, to + step, step)
-        masses = np.empty_like(grid, dtype=float)
-        masses[0] = _lomax_cdf(0.0, shape=4.0, scale=4.0)
-        masses[1:] = _lomax_cdf(grid[1:], shape=4.0, scale=4.0) - _lomax_cdf(
-            grid[:-1],
-            shape=4.0,
-            scale=4.0,
-        )
-        return masses
-    if method == "upper":
-        grid = np.arange(0, to, step)
-        return _lomax_cdf(grid + step, shape=4.0, scale=4.0) - _lomax_cdf(
-            grid,
-            shape=4.0,
-            scale=4.0,
-        )
-    raise ValueError("method must be 'lower' or 'upper'")
-
-
-def _compound_geometric_cdf(severity_pmf: np.ndarray, *, probability: float) -> np.ndarray:
-    """Compound geometric CDF for N on {0, 1, ...} with P(N=n)=p(1-p)^n."""
-
-    masses = np.asarray(severity_pmf, dtype=float)
-    if masses.ndim != 1 or masses.size == 0:
-        raise ValueError("severity_pmf must be a non-empty vector")
-    p = float(probability)
-    if not 0.0 < p < 1.0:
-        raise ValueError("probability must lie in (0, 1)")
-    q = 1.0 - p
-    aggregate = np.zeros_like(masses)
-    aggregate[0] = p / (1.0 - q * masses[0])
-    scale = q / (1.0 - q * masses[0])
-    for k in range(1, masses.size):
-        aggregate[k] = scale * sum(masses[j] * aggregate[k - j] for j in range(1, k + 1))
-    return np.cumsum(aggregate)
 
 
 def main() -> None:
@@ -149,12 +102,26 @@ def main() -> None:
 
     # actuar Beekman/Panjer Pareto example. Claims are Lomax(shape=5, scale=4),
     # mean 1, premium c=1.2 lambda mu, and the equilibrium tail H is Lomax(4,4).
-    f_lower = _discretize_lomax_equilibrium("lower")
-    f_upper = _discretize_lomax_equilibrium("upper")
-    cdf_lower = _compound_geometric_cdf(f_lower, probability=1.0 / 6.0)
-    cdf_upper = _compound_geometric_cdf(f_upper, probability=1.0 / 6.0)
+    equilibrium = _lomax_claim(shape=4.0, scale=4.0)
+    f_lower = discretize(equilibrium, from_=0.0, to=200.0, step=1.0, method="lower").pmf
+    f_upper = discretize(equilibrium, from_=0.0, to=200.0, step=1.0, method="upper").pmf
     grid = np.arange(0, 55, 5)
-    bounds = np.column_stack([1.0 - cdf_upper[grid], 1.0 - cdf_lower[grid]])
+    bounds = np.column_stack(
+        [
+            discrete_pollaczek_khinchine_ultimate_ruin(
+                f_upper,
+                grid,
+                step=1.0,
+                rho=5.0 / 6.0,
+            ),
+            discrete_pollaczek_khinchine_ultimate_ruin(
+                f_lower,
+                grid,
+                step=1.0,
+                rho=5.0 / 6.0,
+            ),
+        ]
+    )
     print("Beekman/Panjer bounds from actuar Table:")
     print("u    lower       upper")
     for surplus, (lower, upper) in zip(grid, bounds, strict=True):
