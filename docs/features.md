@@ -534,8 +534,7 @@ print(model.expected_claim_amount)
 
 ## INAR/BINAR By-Claim Processes
 
-This layer implements the discrete by-claim models used in the local INAR/BINAR
-reference scripts. It is separate from `CramerLundbergProcess` because the
+This layer implements the discrete by-claim models used in Minier's work. It is separate from `CramerLundbergProcess` because the
 secondary claim counts are temporally dependent instead of being attached
 independently to each primary claim.
 
@@ -565,9 +564,10 @@ Useful methods:
 - `expected_byclaim_counts(periods)`: theoretical by-claim count means.
 - `expected_terminal_reserve(periods)`: theoretical terminal-reserve mean.
 
-The local scripts use `T` as an array length and then report/check quantities
-up to `reserve[T - 1]`. To reproduce those printed quantities directly, pass
-`periods=T-1`. Passing `periods=T` uses the package convention and evaluates
+As there is a different indexation convention in Minier's and in this package:
+- to reproduce Minier's printed quantities and results directly, pass
+`periods=T-1`. 
+- to use the package convention, pass `periods=T`, it evaluates
 the full finite horizon after `T` period updates. The scripts' shifted Pareto
 sampling convention is represented by `lomax(shape, scale)`.
 
