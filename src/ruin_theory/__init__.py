@@ -48,6 +48,7 @@ from .models import (
     RiskProcess,
     SparreAndersenProcess,
 )
+from .prevention import ConstantPreventionResult, optimize_constant_prevention
 from .renewal import (
     PanjerRuinResult,
     compound_geometric_pmf,
@@ -71,6 +72,7 @@ __all__ = [
     "ByClaimModel",
     "CapitalInjectionModel",
     "ClaimDistribution",
+    "ConstantPreventionResult",
     "CramerLundbergProcess",
     "DiscretizedDistribution",
     "FrequencyModel",
@@ -105,6 +107,7 @@ __all__ = [
     "lundberg_bound",
     "limited_moment",
     "mixture_exponential",
+    "optimize_constant_prevention",
     "compound_poisson_distribution",
     "pareto",
     "phase_type",

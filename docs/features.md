@@ -270,6 +270,56 @@ model = CramerLundbergProcess(
 print(prevention.apply_frequency(3.0, time=3.0))
 ```
 
+### `optimize_constant_prevention`
+
+Optimizes the constant prevention spend `p` in the Gauchon et al. (2020)
+classical model
+
+```text
+U(t, p) = u + (c - p)t - sum_{i <= N_p(t)} X_i,
+```
+
+where `N_p` has intensity `lambda(p)`. In that model, the prevention amount
+maximizing the infinite-time non-ruin probability also maximizes the adjustment
+coefficient. The implementation minimizes the loss ratio
+`lambda(p) * E[X] / (c - p)`.
+
+Arguments:
+
+- `claim_distribution`: severity law with finite positive mean.
+- `premium_rate`: gross premium rate `c`.
+- `frequency_function`: callable `lambda(p)` returning the claim arrival
+  intensity after spending `p` per unit time on prevention.
+- `max_prevention`: optional upper bound for admissible `p`; defaults to just
+  below `premium_rate`.
+- `activation_threshold`: optional threshold `P` for models where prevention is
+  inactive before `P`; the optimizer compares the active optimum with `p=0`.
+- `initial_capital`: stored in the returned model.
+- `compute_adjustment`: whether to compute the Lundberg coefficient when the
+  optimized model has positive safety loading.
+- `tol`: scalar optimizer tolerance.
+
+Returns a `ConstantPreventionResult` with the optimal `amount`, net premium
+rate, optimized frequency, loss ratio, safety loading, non-ruin probability at
+zero, optional adjustment coefficient, induced `PreventionProgram`, and induced
+`CramerLundbergProcess`.
+
+Minimal example:
+
+```python
+import math
+from ruin_theory import exponential, optimize_constant_prevention
+
+result = optimize_constant_prevention(
+    exponential(rate=1.0),
+    premium_rate=10.0,
+    frequency_function=lambda p: math.exp(-0.2 * p),
+)
+print(result.amount)
+print(result.safety_loading)
+print(result.adjustment_coefficient)
+```
+
 ## By-Claims And Capital Injections
 
 ### `ByClaimModel`
@@ -530,6 +580,7 @@ Implemented now:
 - Loss moments, coverage transformations and lattice discretization.
 - Aggregate-loss distributions by Panjer recursion for common counting laws.
 - Deterministic Pollaczek-Khinchine/Panjer ruin approximations.
+- Constant single-risk prevention optimization following Gauchon et al. (2020).
 - Renewal and prevention-rich models in simulation.
 - By-claims with Poisson or geometric secondary counts.
 - Equilibrium-tail helper and heavy-tail asymptotic path.
@@ -542,3 +593,4 @@ Planned extensions:
 - Gerber-Shiu penalties with surplus-before-ruin and deficit-at-ruin records.
 - Discrete-time INAR/BINAR by-claim processes.
 - Seasonal/periodic prevention optimization beyond simulation windows.
+- Two-claim-type prevention from Gauchon et al. (2021).

@@ -4,6 +4,7 @@ import numpy as np
 
 from ruin_theory import (
     CramerLundbergProcess,
+    ConstantPreventionResult,
     PreventionProgram,
     RiskProcess,
     deterministic,
@@ -13,6 +14,7 @@ from ruin_theory import (
     plot_ruin_curve,
     plot_ruin_time_histogram,
     plot_terminal_reserve_distribution,
+    optimize_constant_prevention,
     simulate_path,
     simulate_terminal_reserves,
 )
@@ -22,7 +24,9 @@ import ruin_theory as rt
 def test_simulation_and_diagnostics_are_top_level_exports():
     exported = {
         "RiskProcess",
+        "ConstantPreventionResult",
         "estimate_ruin_probability",
+        "optimize_constant_prevention",
         "plot_path",
         "plot_paths",
         "plot_ruin_curve",
