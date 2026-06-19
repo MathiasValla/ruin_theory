@@ -103,10 +103,12 @@ Cramer-Lundberg primary-claim models with linear severity scaling:
 - Panjer aggregate distributions for Poisson, binomial, geometric and
   negative-binomial frequencies;
 - constant prevention optimization for ruin probability, adjustment coefficient
-  and expected surplus in the Gauchon et al. (2020) model;
-- periodic prevention calendars with projected-log KKT allocation, lagged
-  calendars, annual Lundberg/net-profit helpers and heavy-tail tail-pressure
-  optimization;
+  and expected surplus in the Gauchon et al. (2020) model, with custom convex
+  decreasing prevention-response functions;
+- periodic prevention calendars with projected-log KKT allocation for
+  exponential responses, constrained optimization for custom response functions,
+  lagged calendars, annual Lundberg/net-profit helpers and heavy-tail
+  tail-pressure optimization;
 - discrete-time INAR/BINAR by-claim simulation, ruin estimation and
   diagnostics;
 - Gerber-Shiu discounted penalty diagnostics with deficit-at-ruin and
@@ -114,7 +116,8 @@ Cramer-Lundberg primary-claim models with linear severity scaling:
 - De Vylder three-moment approximation for supported severity families.
 
 Sparre-Andersen arrivals, by-claims, INAR/BINAR dependent by-claims, capital
-injections and nonlinear prevention are available in simulation.
+injections and nonlinear prevention are available in simulation and prevention
+optimization.
 Markov-modulated methods and matrix-valued/closed-form Gerber-Shiu solvers are
 planned extensions beyond the current simulation diagnostics. The two-claim-type
 prevention model remains planned beyond the current single-risk and periodic

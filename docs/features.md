@@ -291,7 +291,10 @@ Arguments:
 - `claim_distribution`: severity law with finite positive mean.
 - `premium_rate`: gross premium rate `c`.
 - `frequency_function`: callable `lambda(p)` returning the claim arrival
-  intensity after spending `p` per unit time on prevention.
+  intensity after spending `p` per unit time on prevention. It may be written as
+  `lambda0 * f(p)` with any decreasing, convex and numerically C2 response
+  function `f`; use `frequency_function_from_response(lambda0, f)` for that
+  common form.
 - `max_prevention`: optional upper bound for admissible `p`; defaults to just
   below `premium_rate`.
 - `activation_threshold`: optional threshold `P` for models where prevention is
@@ -299,6 +302,10 @@ Arguments:
 - `initial_capital`: stored in the returned model.
 - `compute_adjustment`: whether to compute the Lundberg coefficient when the
   optimized model has positive safety loading.
+- `validate_response`: when true, samples `frequency_function` on the admissible
+  interval and emits `PreventionResponseWarning` if it does not look decreasing,
+  convex or C2.
+- `response_grid_size`, `response_tolerance`: numerical shape-check controls.
 - `tol`: scalar optimizer tolerance.
 
 Returns a `ConstantPreventionResult` with the optimal `amount`, net premium
@@ -309,13 +316,18 @@ zero, optional adjustment coefficient, induced `PreventionProgram`, and induced
 Minimal example:
 
 ```python
-import math
-from ruin_theory import exponential, optimize_constant_prevention
+from ruin_theory import (
+    exponential,
+    frequency_function_from_response,
+    optimize_constant_prevention,
+)
+
+frequency = frequency_function_from_response(1.0, lambda p: 1.0 / (1.0 + p))
 
 result = optimize_constant_prevention(
     exponential(rate=1.0),
     premium_rate=10.0,
-    frequency_function=lambda p: math.exp(-0.2 * p),
+    frequency_function=frequency,
 )
 print(result.amount)
 print(result.safety_loading)
@@ -341,13 +353,16 @@ Arguments:
 - `claim_distribution`: severity law with finite positive mean.
 - `premium_rate`: gross premium rate `c`.
 - `frequency_function`: callable `lambda(p)` returning the claim arrival
-  intensity after spending `p` per unit time on prevention.
+  intensity after spending `p` per unit time on prevention; as above, this can
+  be `lambda0 * f(p)` for an arbitrary decreasing convex response function.
 - `horizon`: positive time horizon used in `E[U(t, p)]`.
 - `max_prevention`: optional upper bound for admissible `p`; defaults to just
   below `premium_rate`.
 - `activation_threshold`: optional threshold `P` for inactive prevention before
   `P`; the optimizer compares the active optimum with `p=0`.
 - `initial_capital`: initial surplus `u`.
+- `validate_response`, `response_grid_size`, `response_tolerance`: same response
+  shape diagnostics as `optimize_constant_prevention`.
 - `tol`: scalar optimizer tolerance.
 
 Returns an `ExpectedSurplusPreventionResult` with the optimal `amount`, net
@@ -376,19 +391,22 @@ print(result.expected_surplus)
 ### `optimize_periodic_prevention_calendar`
 
 Optimizes a discrete periodic prevention calendar under the Minier-Valla-Lefevre
-seasonal-prevention KKT rule. The implemented finite-dimensional problem is
+seasonal-prevention model. The implemented finite-dimensional problem is
 
 ```text
-min sum_i W_i exp(-a p_i)
+min sum_i W_i f(p_i)
 subject to sum_i d_i p_i = pbar, 0 <= p_i <= pmax,
 ```
 
 where `W_i` is the integrated seasonal pressure in period `i`, `d_i` is the
-period duration as a fraction of the year, and `a` is the exponential prevention
-effectiveness. For a light-tailed Lundberg pressure with season-dependent
-severity, use `W_i` proportional to `Lambda_i * (M_i(rho) - 1)`; for an
-expected-loss calendar, use `W_i` proportional to frequency times retained mean
-severity.
+period duration as a fraction of the year, and `f` is a decreasing, convex
+prevention response. If `effectiveness=a` is supplied, the package uses the
+closed-form projected-log KKT solver for `f(p)=exp(-a p)`. If
+`prevention_response=f` is supplied, it uses a constrained numerical optimizer
+and warns when sampled values do not look decreasing, convex or C2. For a
+light-tailed Lundberg pressure with season-dependent severity, use `W_i`
+proportional to `Lambda_i * (M_i(rho) - 1)`; for an expected-loss calendar, use
+`W_i` proportional to frequency times retained mean severity.
 
 Arguments:
 
@@ -396,11 +414,17 @@ Arguments:
   period duration.
 - `annual_budget`: annual prevention budget `pbar`.
 - `max_prevention`: instantaneous annualized spending cap `pmax`.
-- `effectiveness`: exponential response parameter `a`.
+- `effectiveness`: exponential response parameter `a`; mutually exclusive with
+  `prevention_response`.
+- `prevention_response`: optional callable `f(p)` for a custom response
+  function. It should be non-negative, decreasing, convex and C2 on
+  `[0, max_prevention]`.
 - `durations`: optional positive period durations summing to one; defaults to
   equal periods.
 - `lag_steps`: integer implementation lag. With `lag_steps=1`, spending in one
   period affects the next period.
+- `validate_response`, `response_grid_size`, `response_tolerance`: numerical
+  diagnostics for custom response functions.
 - `tol`: numerical tolerance for budget feasibility and bisection.
 
 Returns a `PeriodicPreventionResult` with spending `amounts`,
@@ -416,7 +440,9 @@ Related helpers:
   expected-loss pressure, `M_i(rho)-1` for Lundberg pressure, and tail constants
   for heavy-tail pressure.
 - `periodic_controlled_pressure(weights, amounts, effectiveness,
-  lag_steps=0)`: evaluates the controlled annual pressure for a fixed calendar.
+  lag_steps=0)`: evaluates the controlled annual pressure for a fixed
+  exponential calendar. Pass `prevention_response=f` instead of `effectiveness`
+  to evaluate a custom-response calendar.
 - `periodic_net_profit(premium_rate, annual_budget, claim_mean,
   controlled_frequency)`: returns `c - B(p) - m A(p)`.
 - `periodic_lundberg_coefficient(claim_distribution, premium_rate,

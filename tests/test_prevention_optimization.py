@@ -8,8 +8,10 @@ from ruin_theory import (
     ExpectedSurplusPreventionResult,
     HeavyTailPreventionResult,
     PeriodicPreventionResult,
+    PreventionResponseWarning,
     adjustment_coefficient,
     exponential,
+    frequency_function_from_response,
     heavy_tail_expected_ruin_time_asymptotic,
     heavy_tail_one_big_jump_ruin_probability,
     optimize_constant_prevention,
@@ -20,6 +22,7 @@ from ruin_theory import (
     periodic_lundberg_coefficient,
     periodic_net_profit,
     periodic_pressure_weights,
+    validate_prevention_response,
 )
 
 
@@ -115,6 +118,40 @@ def test_constant_prevention_optimizer_respects_max_prevention_boundary():
 
     assert result.amount == pytest.approx(4.0, abs=2e-5)
     assert result.boundary == "upper"
+
+
+def test_frequency_function_from_response_scales_baseline_frequency():
+    response = lambda p: 1.0 / (1.0 + p)
+    frequency = frequency_function_from_response(2.5, response, max_prevention=2.0)
+
+    assert frequency(0.0) == pytest.approx(2.5)
+    assert frequency(1.0) == pytest.approx(1.25)
+
+    result = optimize_constant_prevention(
+        exponential(rate=1.0),
+        premium_rate=10.0,
+        frequency_function=frequency,
+        max_prevention=2.0,
+    )
+
+    assert result.baseline_frequency == pytest.approx(2.5)
+    assert result.claim_arrival_rate == pytest.approx(frequency(result.amount))
+
+
+def test_prevention_response_validator_warns_on_shape_violations():
+    with pytest.warns(PreventionResponseWarning, match="decreasing"):
+        validate_prevention_response(lambda p: 1.0 + p, max_prevention=1.0)
+
+    with pytest.warns(PreventionResponseWarning, match="convex"):
+        validate_prevention_response(lambda p: 1.0 - 0.25 * p * p, max_prevention=1.0)
+
+    def kinked_response(amount: float) -> float:
+        if amount <= 0.5:
+            return 1.0 - 0.25 * amount
+        return 0.875 - 0.05 * (amount - 0.5)
+
+    with pytest.warns(PreventionResponseWarning, match="C2"):
+        validate_prevention_response(kinked_response, max_prevention=1.0)
 
 
 def test_expected_surplus_optimizer_matches_gauchon_closed_form_condition():
@@ -223,6 +260,34 @@ def test_periodic_prevention_lag_shifts_spending_before_pressure_peak():
     assert int(np.argmax(result.amounts)) == 1
     assert int(np.argmax(result.effective_amounts)) == 2
     assert result.controlled_pressure < result.constant_pressure
+
+
+def test_periodic_prevention_accepts_custom_convex_response():
+    weights = np.array([0.02, 0.08, 0.02, 0.02])
+    response = lambda p: 1.0 / (1.0 + 2.0 * p)
+
+    result = optimize_periodic_prevention_calendar(
+        weights,
+        annual_budget=0.5,
+        max_prevention=1.0,
+        prevention_response=response,
+    )
+
+    assert result.effectiveness is None
+    assert result.prevention_response is response
+    assert result.tau is None
+    assert result.budget_spent == pytest.approx(0.5)
+    assert result.amounts[1] > result.amounts[0]
+    np.testing.assert_allclose(
+        result.frequency_multipliers,
+        np.array([response(amount) for amount in result.effective_amounts]),
+    )
+    assert result.controlled_pressure == pytest.approx(
+        np.dot(weights, result.frequency_multipliers),
+    )
+    assert periodic_controlled_pressure(weights, result.amounts, prevention_response=response) == (
+        pytest.approx(result.controlled_pressure)
+    )
 
 
 def test_periodic_pressure_weights_and_net_profit_match_annual_definitions():

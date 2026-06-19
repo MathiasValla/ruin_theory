@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import warnings
 from dataclasses import dataclass
 from typing import Callable
 
@@ -15,6 +16,11 @@ from .models import CramerLundbergProcess, PreventionProgram
 
 
 FrequencyFunction = Callable[[float], float]
+PreventionResponse = Callable[[float], float]
+
+
+class PreventionResponseWarning(UserWarning):
+    """Warning emitted when a prevention response fails numerical shape checks."""
 
 
 def _positive_float(value: float, name: str) -> float:
@@ -36,6 +42,140 @@ def _frequency_value(function: FrequencyFunction, amount: float) -> float:
     if not np.isfinite(value) or value <= 0.0:
         raise ValueError("frequency_function must return finite positive values")
     return value
+
+
+def _response_value(
+    function: PreventionResponse,
+    amount: float,
+    name: str,
+    *,
+    strictly_positive: bool = False,
+) -> float:
+    value = float(function(float(amount)))
+    invalid = not np.isfinite(value) or value < 0.0 or (strictly_positive and value <= 0.0)
+    if invalid:
+        qualifier = "positive" if strictly_positive else "non-negative"
+        raise ValueError(f"{name} must return finite {qualifier} values")
+    return value
+
+
+def _response_values(
+    function: PreventionResponse,
+    amounts: np.ndarray,
+    name: str,
+    *,
+    strictly_positive: bool = False,
+) -> np.ndarray:
+    try:
+        vector_values = np.asarray(function(amounts.astype(float, copy=False)), dtype=float)
+    except (TypeError, ValueError, AttributeError):
+        vector_values = None
+    if vector_values is not None and vector_values.shape == amounts.shape:
+        invalid = (
+            not np.all(np.isfinite(vector_values))
+            or np.any(vector_values < 0.0)
+            or (strictly_positive and np.any(vector_values <= 0.0))
+        )
+        if invalid:
+            qualifier = "positive" if strictly_positive else "non-negative"
+            raise ValueError(f"{name} must return finite {qualifier} values")
+        return vector_values
+
+    values = [
+        _response_value(
+            function,
+            amount,
+            name,
+            strictly_positive=strictly_positive,
+        )
+        for amount in amounts.ravel()
+    ]
+    return np.asarray(values, dtype=float).reshape(amounts.shape)
+
+
+def validate_prevention_response(
+    prevention_response: PreventionResponse,
+    *,
+    max_prevention: float,
+    grid_size: int = 129,
+    tolerance: float = 1e-8,
+    name: str = "prevention_response",
+    strictly_positive: bool = False,
+) -> np.ndarray:
+    """Numerically check that a prevention response is decreasing, convex and C2-like.
+
+    A callable cannot be certified analytically from samples, so this helper emits
+    warnings for apparent violations on an evenly spaced grid over the admissible
+    interval. It raises when the callable itself is invalid or returns impossible
+    response values.
+    """
+
+    if not callable(prevention_response):
+        raise TypeError(f"{name} must be callable")
+    cap = _positive_float(max_prevention, "max_prevention")
+    n_grid = int(grid_size)
+    if n_grid != grid_size or n_grid < 5:
+        raise ValueError("grid_size must be an integer greater than or equal to 5")
+    tol = _positive_float(tolerance, "tolerance")
+    grid = np.linspace(0.0, cap, n_grid)
+    values = _response_values(
+        prevention_response,
+        grid,
+        name,
+        strictly_positive=strictly_positive,
+    )
+    scale = max(1.0, float(np.max(np.abs(values))))
+    atol = tol * scale
+
+    if np.any(np.diff(values) > atol):
+        warnings.warn(
+            f"{name} does not appear to be decreasing on [0, {cap:g}]",
+            PreventionResponseWarning,
+            stacklevel=2,
+        )
+    second = np.diff(values, n=2)
+    if np.any(second < -atol):
+        warnings.warn(
+            f"{name} does not appear to be convex on [0, {cap:g}]",
+            PreventionResponseWarning,
+            stacklevel=2,
+        )
+    step = cap / (n_grid - 1)
+    curvature = second / (step * step)
+    if curvature.size > 2:
+        curvature_scale = max(1.0, float(np.max(np.abs(curvature))))
+        if float(np.max(np.abs(np.diff(curvature)))) > 0.5 * curvature_scale:
+            warnings.warn(
+                f"{name} does not appear to be C2 on [0, {cap:g}]",
+                PreventionResponseWarning,
+                stacklevel=2,
+            )
+    return values
+
+
+def frequency_function_from_response(
+    baseline_frequency: float,
+    prevention_response: PreventionResponse,
+    *,
+    max_prevention: float | None = None,
+    grid_size: int = 129,
+    tolerance: float = 1e-8,
+) -> FrequencyFunction:
+    """Build ``lambda(p)=lambda0*f(p)`` from a prevention response function."""
+
+    baseline = _positive_float(baseline_frequency, "baseline_frequency")
+    if max_prevention is not None:
+        validate_prevention_response(
+            prevention_response,
+            max_prevention=max_prevention,
+            grid_size=grid_size,
+            tolerance=tolerance,
+        )
+
+    def frequency(amount: float) -> float:
+        return baseline * _response_value(prevention_response, amount, "prevention_response")
+
+    return frequency
 
 
 @dataclass(frozen=True)
@@ -87,7 +227,8 @@ class PeriodicPreventionResult:
     annual_budget: float
     budget_spent: float
     max_prevention: float
-    effectiveness: float
+    effectiveness: float | None
+    prevention_response: PreventionResponse | None
     tau: float | None
     lag_steps: int
     baseline_pressure: float
@@ -99,6 +240,14 @@ class PeriodicPreventionResult:
     def frequency_multipliers(self) -> np.ndarray:
         """Frequency multipliers induced by the effective calendar."""
 
+        if self.prevention_response is not None:
+            return _response_values(
+                self.prevention_response,
+                self.effective_amounts,
+                "prevention_response",
+            )
+        if self.effectiveness is None:
+            raise ValueError("effectiveness is required for exponential calendars")
         return np.exp(-self.effectiveness * self.effective_amounts)
 
     def frequency_windows(
@@ -325,8 +474,94 @@ def _projected_log_calendar(
     return amounts, float(tau)
 
 
+def _generic_periodic_calendar(
+    *,
+    weights: np.ndarray,
+    durations: np.ndarray,
+    annual_budget: float,
+    max_prevention: float,
+    prevention_response: PreventionResponse,
+    tol: float,
+) -> np.ndarray:
+    maximum_budget = max_prevention * durations.sum()
+    if annual_budget > maximum_budget + tol:
+        raise ValueError("annual_budget exceeds the instantaneous prevention cap")
+    if annual_budget <= tol:
+        return np.zeros_like(weights)
+    if annual_budget >= maximum_budget - tol:
+        return np.full_like(weights, max_prevention)
+    if not np.any(weights > 0.0):
+        return _allocate_flat_budget(durations, annual_budget, max_prevention)
+
+    x0 = np.full_like(weights, annual_budget / durations.sum())
+
+    def objective(amounts: np.ndarray) -> float:
+        return float(
+            np.dot(
+                weights,
+                _response_values(prevention_response, amounts, "prevention_response"),
+            )
+        )
+
+    result = optimize.minimize(
+        objective,
+        x0,
+        method="SLSQP",
+        bounds=[(0.0, max_prevention)] * weights.size,
+        constraints={
+            "type": "eq",
+            "fun": lambda amounts: float(np.dot(durations, amounts) - annual_budget),
+        },
+        options={"ftol": tol, "maxiter": 1000},
+    )
+    if not result.success:
+        raise ValueError(f"periodic prevention optimization failed: {result.message}")
+
+    amounts = np.clip(np.asarray(result.x, dtype=float), 0.0, max_prevention)
+    if abs(float(np.dot(durations, amounts)) - annual_budget) > max(1e-7, 100.0 * tol):
+        raise ValueError("periodic prevention optimization did not satisfy the budget")
+    return amounts
+
+
 def _budget_spent(amounts: np.ndarray, durations: np.ndarray) -> float:
     return float(np.dot(durations, amounts))
+
+
+def _exponential_response(effectiveness: float) -> PreventionResponse:
+    response = _positive_float(effectiveness, "effectiveness")
+
+    def function(amount: float) -> float:
+        return math.exp(-response * amount)
+
+    return function
+
+
+def _periodic_response_function(
+    *,
+    effectiveness: float | None,
+    prevention_response: PreventionResponse | None,
+    max_prevention: float,
+    validate_response: bool,
+    response_grid_size: int,
+    response_tolerance: float,
+) -> tuple[PreventionResponse, float | None]:
+    if prevention_response is None:
+        if effectiveness is None:
+            raise ValueError("either effectiveness or prevention_response must be provided")
+        response = _positive_float(effectiveness, "effectiveness")
+        return _exponential_response(response), response
+    if effectiveness is not None:
+        raise ValueError("provide either effectiveness or prevention_response, not both")
+    if validate_response:
+        validate_prevention_response(
+            prevention_response,
+            max_prevention=max_prevention,
+            grid_size=response_grid_size,
+            tolerance=response_tolerance,
+        )
+    else:
+        _response_value(prevention_response, 0.0, "prevention_response")
+    return prevention_response, None
 
 
 def periodic_pressure_weights(
@@ -358,8 +593,12 @@ def periodic_controlled_pressure(
     weights: np.ndarray | list[float] | tuple[float, ...],
     amounts: np.ndarray | list[float] | tuple[float, ...],
     *,
-    effectiveness: float,
+    effectiveness: float | None = None,
+    prevention_response: PreventionResponse | None = None,
     lag_steps: int = 0,
+    validate_response: bool = True,
+    response_grid_size: int = 129,
+    response_tolerance: float = 1e-8,
 ) -> float:
     """Evaluate the controlled periodic pressure for a fixed calendar."""
 
@@ -371,12 +610,26 @@ def periodic_controlled_pressure(
         raise ValueError("amounts must have the same shape as weights")
     if np.any(prevention < 0.0):
         raise ValueError("amounts must be non-negative")
-    response = _positive_float(effectiveness, "effectiveness")
     lag = int(lag_steps)
     if lag != lag_steps:
         raise ValueError("lag_steps must be an integer")
     effective = np.roll(prevention, lag)
-    return float(np.dot(pressure, np.exp(-response * effective)))
+    if prevention_response is None:
+        response = _positive_float(effectiveness, "effectiveness")
+        multipliers = np.exp(-response * effective)
+    else:
+        if effectiveness is not None:
+            raise ValueError("provide either effectiveness or prevention_response, not both")
+        cap = float(prevention.max(initial=0.0))
+        if validate_response and cap > 0.0:
+            validate_prevention_response(
+                prevention_response,
+                max_prevention=cap,
+                grid_size=response_grid_size,
+                tolerance=response_tolerance,
+            )
+        multipliers = _response_values(prevention_response, effective, "prevention_response")
+    return float(np.dot(pressure, multipliers))
 
 
 def periodic_net_profit(
@@ -488,6 +741,9 @@ def optimize_constant_prevention(
     activation_threshold: float | None = None,
     initial_capital: float = 0.0,
     compute_adjustment: bool = True,
+    validate_response: bool = True,
+    response_grid_size: int = 129,
+    response_tolerance: float = 1e-8,
     tol: float = 1e-10,
 ) -> ConstantPreventionResult:
     """Optimize a constant prevention spend in the Gauchon et al. model.
@@ -511,6 +767,15 @@ def optimize_constant_prevention(
         max_prevention=max_prevention,
         activation_threshold=activation_threshold,
     )
+    if validate_response:
+        validate_prevention_response(
+            frequency_function,
+            max_prevention=upper,
+            grid_size=response_grid_size,
+            tolerance=response_tolerance,
+            name="frequency_function",
+            strictly_positive=True,
+        )
 
     baseline_frequency = _frequency_value(frequency_function, 0.0)
 
@@ -572,6 +837,9 @@ def optimize_expected_surplus_prevention(
     max_prevention: float | None = None,
     activation_threshold: float | None = None,
     initial_capital: float = 0.0,
+    validate_response: bool = True,
+    response_grid_size: int = 129,
+    response_tolerance: float = 1e-8,
     tol: float = 1e-10,
 ) -> ExpectedSurplusPreventionResult:
     """Optimize constant prevention for expected surplus at a fixed horizon.
@@ -596,6 +864,15 @@ def optimize_expected_surplus_prevention(
         max_prevention=max_prevention,
         activation_threshold=activation_threshold,
     )
+    if validate_response:
+        validate_prevention_response(
+            frequency_function,
+            max_prevention=upper,
+            grid_size=response_grid_size,
+            tolerance=response_tolerance,
+            name="frequency_function",
+            strictly_positive=True,
+        )
     baseline_frequency = _frequency_value(frequency_function, 0.0)
 
     def negative_net_drift(amount: float) -> float:
@@ -643,42 +920,75 @@ def optimize_periodic_prevention_calendar(
     *,
     annual_budget: float,
     max_prevention: float,
-    effectiveness: float,
+    effectiveness: float | None = None,
+    prevention_response: PreventionResponse | None = None,
     durations: np.ndarray | list[float] | tuple[float, ...] | None = None,
     lag_steps: int = 0,
+    validate_response: bool = True,
+    response_grid_size: int = 129,
+    response_tolerance: float = 1e-8,
     tol: float = 1e-12,
 ) -> PeriodicPreventionResult:
-    """Optimize a discrete periodic prevention calendar with exponential response.
+    """Optimize a discrete periodic prevention calendar.
 
     The objective is
-    ``sum_i weights[i] * exp(-effectiveness * effective_p[i])`` subject to
+    ``sum_i weights[i] * f(effective_p[i])`` subject to
     ``sum_i durations[i] * p[i] = annual_budget`` and
-    ``0 <= p[i] <= max_prevention``. With `lag_steps > 0`, spending in period
-    `i` affects pressure in period `i + lag_steps`.
+    ``0 <= p[i] <= max_prevention``. Use `effectiveness` for the default
+    exponential response ``f(p)=exp(-effectiveness*p)``, or pass a custom
+    `prevention_response`. With `lag_steps > 0`, spending in period `i` affects
+    pressure in period `i + lag_steps`.
     """
 
     pressure, period_lengths = _periodic_inputs(weights, durations)
     budget = _nonnegative_float(annual_budget, "annual_budget")
     cap = _positive_float(max_prevention, "max_prevention")
-    response = _positive_float(effectiveness, "effectiveness")
     tol = _positive_float(tol, "tol")
     lag = int(lag_steps)
     if lag != lag_steps:
         raise ValueError("lag_steps must be an integer")
+    response_function, exponential_effectiveness = _periodic_response_function(
+        effectiveness=effectiveness,
+        prevention_response=prevention_response,
+        max_prevention=cap,
+        validate_response=validate_response,
+        response_grid_size=response_grid_size,
+        response_tolerance=response_tolerance,
+    )
 
     shifted_pressure = np.roll(pressure, -lag)
-    amounts, tau = _projected_log_calendar(
-        weights=shifted_pressure,
-        durations=period_lengths,
-        annual_budget=budget,
-        max_prevention=cap,
-        effectiveness=response,
-        tol=tol,
-    )
+    if exponential_effectiveness is None:
+        amounts = _generic_periodic_calendar(
+            weights=shifted_pressure,
+            durations=period_lengths,
+            annual_budget=budget,
+            max_prevention=cap,
+            prevention_response=response_function,
+            tol=tol,
+        )
+        tau = None
+    else:
+        amounts, tau = _projected_log_calendar(
+            weights=shifted_pressure,
+            durations=period_lengths,
+            annual_budget=budget,
+            max_prevention=cap,
+            effectiveness=exponential_effectiveness,
+            tol=tol,
+        )
     effective_amounts = np.roll(amounts, lag)
-    controlled = float(np.dot(pressure, np.exp(-response * effective_amounts)))
-    baseline = float(pressure.sum())
-    constant = float(pressure.sum() * math.exp(-response * budget))
+    controlled = float(
+        np.dot(
+            pressure,
+            _response_values(response_function, effective_amounts, "prevention_response"),
+        )
+    )
+    baseline = float(
+        pressure.sum() * _response_value(response_function, 0.0, "prevention_response")
+    )
+    constant = float(
+        pressure.sum() * _response_value(response_function, budget, "prevention_response")
+    )
     reduction = 0.0 if baseline == 0.0 else 1.0 - controlled / baseline
 
     return PeriodicPreventionResult(
@@ -689,7 +999,8 @@ def optimize_periodic_prevention_calendar(
         annual_budget=budget,
         budget_spent=_budget_spent(amounts, period_lengths),
         max_prevention=cap,
-        effectiveness=response,
+        effectiveness=exponential_effectiveness,
+        prevention_response=prevention_response,
         tau=tau,
         lag_steps=lag,
         baseline_pressure=baseline,
@@ -821,11 +1132,7 @@ def heavy_tail_one_big_jump_ruin_probability(
     time_remaining = horizon_value
     elapsed = 0.0
     approximation = 0.0
-    controlled_density = (
-        calendar.weights
-        * np.exp(-calendar.effectiveness * calendar.effective_amounts)
-        / calendar.durations
-    )
+    controlled_density = calendar.weights * calendar.frequency_multipliers / calendar.durations
 
     while time_remaining > 0.0:
         duration = float(calendar.durations[period])
