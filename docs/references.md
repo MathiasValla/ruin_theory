@@ -105,8 +105,7 @@ aggregate-distribution methods.
 - Minier, C., Valla, M., and Lefevre, C. (manuscript). Seasonal prevention in
   ruin theory: periodic control, Lundberg bounds, and storm-loss-day
   simulations.
-- Valla, M., Rivoire, P., Minier, C., Guibert, Q., and Loisel, S. (2026,
-  manuscript). How long can premiums compensate infinite-mean claims?
+- Valla et al. (2026, manuscript). How long can premiums compensate infinite-mean claims?
   Ruin-time asymptotics for heavy-tailed compound events.
 
 ## By-Claims And Discrete Dependence
