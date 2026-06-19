@@ -649,6 +649,88 @@ def plot_periodic_pressure(
     return axis
 
 
+def plot_win_first_surface(
+    initial_capital: ArrayLike,
+    gain: ArrayLike,
+    probabilities: ArrayLike,
+    *,
+    ax: Axes | None = None,
+    colorbar: bool = True,
+) -> Axes:
+    """Plot a win-first probability surface over initial surplus and target gain."""
+
+    surplus = _as_1d_float(initial_capital, "initial_capital")
+    target_gain = _as_1d_float(gain, "gain")
+    values = np.asarray(probabilities, dtype=float)
+    if values.shape != (surplus.size, target_gain.size):
+        raise ValueError("probabilities must have shape (len(initial_capital), len(gain))")
+    if not np.all(np.isfinite(values)) or np.any((values < 0.0) | (values > 1.0)):
+        raise ValueError("probabilities must contain values in [0, 1]")
+
+    axis = _axis(ax)
+    mesh = axis.pcolormesh(target_gain, surplus, values, shading="auto", cmap="viridis")
+    if colorbar:
+        axis.figure.colorbar(mesh, ax=axis, label="win-first probability")
+    axis.set_xlabel("target gain")
+    axis.set_ylabel("initial surplus")
+    axis.set_title("Win-first probability")
+    return axis
+
+
+def plot_maximum_before_default_hazard(
+    x: ArrayLike,
+    hazard: ArrayLike,
+    *,
+    ax: Axes | None = None,
+    label: str | None = None,
+) -> Axes:
+    """Plot the hazard rate of the maximum-before-default distribution."""
+
+    levels = _as_1d_float(x, "x")
+    values = _as_1d_float(hazard, "hazard")
+    if values.shape != levels.shape:
+        raise ValueError("hazard must match x shape")
+    if np.any(values < 0.0):
+        raise ValueError("hazard must be non-negative")
+
+    axis = _axis(ax)
+    axis.plot(levels, values, color="#b00020", linewidth=2.0, label=label)
+    axis.set_xlabel("surplus level")
+    axis.set_ylabel("hazard rate")
+    axis.set_title("Maximum-before-default hazard")
+    if label:
+        axis.legend()
+    return axis
+
+
+def plot_win_first_sensitivity(
+    parameter_values: ArrayLike,
+    probabilities: ArrayLike,
+    *,
+    parameter_name: str = "parameter",
+    ax: Axes | None = None,
+    label: str | None = None,
+) -> Axes:
+    """Plot win-first sensitivity to a scalar model parameter."""
+
+    parameters = _as_1d_float(parameter_values, "parameter_values")
+    values = _as_1d_float(probabilities, "probabilities")
+    if values.shape != parameters.shape:
+        raise ValueError("probabilities must match parameter_values shape")
+    if np.any((values < 0.0) | (values > 1.0)):
+        raise ValueError("probabilities must lie in [0, 1]")
+
+    axis = _axis(ax)
+    axis.plot(parameters, values, color="#0b6e4f", linewidth=2.0, marker="o", label=label)
+    axis.set_xlabel(parameter_name)
+    axis.set_ylabel("win-first probability")
+    axis.set_ylim(0.0, 1.0)
+    axis.set_title("Win-first sensitivity")
+    if label:
+        axis.legend()
+    return axis
+
+
 def plot_integer_byclaim_path(
     path: IntegerByClaimPath,
     *,

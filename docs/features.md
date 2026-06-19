@@ -1037,6 +1037,111 @@ roots = period_lundberg_roots_from_pmf([[0.75, 0.25], [0.75, 0.25]], premiums=[0
 print(finite_time_lundberg_bounds(roots, initial_capital=2.0).bounds)
 ```
 
+### Interest Force, Double Barrier And Win-First
+
+This block implements the Rulliere-Loisel/Segerdahl double-barrier identity for
+the compound-Poisson risk model with constant force of interest
+
+```text
+dR_t = c dt - dS_t + delta R_t dt.
+```
+
+The win-first probability is the probability that a process starting at `u`
+reaches the upper barrier `u + v` before ruin. If `phi_delta(u)` is the
+ultimate non-ruin probability under interest force, then
+
+```text
+WF(u, v) = phi_delta(u) / phi_delta(u + v).
+```
+
+Available functions:
+
+- `ultimate_ruin_exponential_interest_force(initial_capital, premium_rate,
+  claim_arrival_rate, claim_rate, interest_force=0)`: Segerdahl/Asmussen-
+  Albrecher exact ultimate ruin probability for exponential claims. With zero
+  interest it reduces to the classical exponential Cramer-Lundberg formula.
+- `non_ruin_exponential_interest_force(...)`: `1 - psi_delta(u)` for the same
+  model.
+- `win_first_probability_from_non_ruin(initial_capital, gain,
+  non_ruin_function)`: generic quotient `phi(u)/phi(u+v)` for any positive
+  non-decreasing non-ruin function.
+- `win_first_probability_exponential_interest_force(initial_capital, gain,
+  premium_rate, claim_arrival_rate, claim_rate, interest_force=0)`: exact
+  exponential-claim win-first probability under constant interest.
+- `maximum_before_default_survival(x, non_ruin_function)`: survival of the
+  defective maximum-before-default variable, `S(x)=phi(0)/phi(x)`.
+- `maximum_before_default_hazard(x, non_ruin_function, step=None)`: numerical
+  hazard rate `-d log S(x)/dx = d log phi(x)/dx`.
+- `win_first_time_bound(initial_capital, gain, premium_rate,
+  interest_force=0)`: deterministic no-claim lower time needed to earn `gain`,
+  useful for finite-time upper bounds.
+
+Arguments:
+
+- `initial_capital`: non-negative starting surplus `u`, scalar or array.
+- `gain`: non-negative upper-barrier increment `v`, scalar or array broadcastable
+  with `initial_capital`.
+- `premium_rate`: positive premium income rate `c`.
+- `claim_arrival_rate`: non-negative Poisson claim intensity `lambda`.
+- `claim_rate`: positive exponential claim rate `mu`.
+- `interest_force`: non-negative constant force of interest `delta`.
+- `non_ruin_function`: callable returning finite positive non-ruin
+  probabilities and non-decreasing on evaluated points.
+- `step`: optional finite-difference step for the maximum-before-default hazard.
+
+Minimal example:
+
+```python
+import numpy as np
+from ruin_theory import (
+    maximum_before_default_hazard,
+    non_ruin_exponential_interest_force,
+    win_first_probability_exponential_interest_force,
+)
+
+params = dict(
+    premium_rate=1.2,
+    claim_arrival_rate=0.7,
+    claim_rate=1.4,
+    interest_force=0.08,
+)
+u = np.linspace(0.0, 5.0, 20)
+v = 2.0
+
+wf = win_first_probability_exponential_interest_force(u, v, **params)
+phi = lambda x: non_ruin_exponential_interest_force(x, **params)
+hazard = maximum_before_default_hazard(u, phi)
+print(wf)
+print(hazard)
+```
+
+Plot example:
+
+```python
+import numpy as np
+from matplotlib import pyplot as plt
+from ruin_theory import (
+    plot_maximum_before_default_hazard,
+    plot_win_first_sensitivity,
+    plot_win_first_surface,
+    win_first_probability_exponential_interest_force,
+)
+
+u = np.linspace(0.0, 5.0, 30)
+v = np.linspace(0.2, 4.0, 25)
+surface = win_first_probability_exponential_interest_force(u[:, None], v[None, :], **params)
+fig, axes = plt.subplots(1, 3)
+plot_win_first_surface(u, v, surface, ax=axes[0])
+plot_maximum_before_default_hazard(u, hazard, ax=axes[1])
+
+deltas = np.array([0.0, 0.03, 0.06, 0.09])
+sensitivity = [
+    win_first_probability_exponential_interest_force(1.0, 2.0, **(params | {"interest_force": d}))
+    for d in deltas
+]
+plot_win_first_sensitivity(deltas, sensitivity, parameter_name="interest force", ax=axes[2])
+```
+
 ## Gerber-Shiu Diagnostics
 
 The Gerber-Shiu diagnostic layer estimates the finite-horizon discounted
@@ -1150,6 +1255,13 @@ Available diagnostics:
   lagged effective calendar overlaid when relevant.
 - `plot_periodic_pressure(calendar, ax=None, labels=None,
   show_controlled=True)`: baseline and controlled periodic pressure weights.
+- `plot_win_first_surface(initial_capital, gain, probabilities, ax=None,
+  colorbar=True)`: heatmap of double-barrier win-first probabilities.
+- `plot_maximum_before_default_hazard(x, hazard, ax=None, label=None)`:
+  hazard-rate curve for the maximum-before-default distribution.
+- `plot_win_first_sensitivity(parameter_values, probabilities,
+  parameter_name="parameter", ax=None, label=None)`: one-parameter sensitivity
+  plot for interest, claim intensity, premium rate or any other scalar input.
 - `plot_integer_byclaim_path(path, ax=None, show_ruin=True)`: discrete
   INAR/BINAR reserve trajectory.
 - `plot_integer_byclaim_counts(path, ax=None, kind="byclaim")`: primary or
@@ -1253,6 +1365,8 @@ Implemented now:
   roots plus Castaner exponential premium-principle roots.
 - Picard-Lefevre generalized-Appell coefficients, base polynomials and exact
   homogeneous finite-time ruin formulas for arbitrary increasing boundaries.
+- Constant-interest exponential ruin probabilities, double-barrier win-first
+  quotients, maximum-before-default hazards and sensitivity plots.
 - Phase-type severity distributions and exact Cramer-Lundberg ultimate ruin
   probabilities for phase-type primary claims.
 - Loss moments, coverage transformations and lattice discretization.

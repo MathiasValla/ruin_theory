@@ -13,6 +13,7 @@ from matplotlib import pyplot as plt
 from ruin_theory.plotting import (
     plot_integer_byclaim_counts,
     plot_integer_byclaim_path,
+    plot_maximum_before_default_hazard,
     plot_deficit_at_ruin,
     plot_discrete_time_deficit_cdf,
     plot_discrete_time_surplus_cdf,
@@ -30,6 +31,8 @@ from ruin_theory.plotting import (
     plot_ruin_time_histogram,
     plot_surplus_before_ruin,
     plot_terminal_reserve_distribution,
+    plot_win_first_sensitivity,
+    plot_win_first_surface,
 )
 from ruin_theory import (
     BINARByClaimModel,
@@ -155,6 +158,44 @@ def test_plot_ruin_curve_validates_and_labels_probability_curve():
 
     with pytest.raises(ValueError, match="less than or equal"):
         plot_ruin_curve([0.0], [0.5], ci_low=[0.6], ci_high=[0.4])
+
+
+def test_plot_win_first_surface_hazard_and_sensitivity():
+    surplus = np.array([0.0, 1.0, 2.0])
+    gain = np.array([0.5, 1.0])
+    probabilities = np.array([[0.7, 0.5], [0.8, 0.6], [0.9, 0.7]])
+
+    fig, axes = plt.subplots(1, 3)
+    try:
+        surface = plot_win_first_surface(surplus, gain, probabilities, ax=axes[0])
+        hazard = plot_maximum_before_default_hazard(
+            surplus,
+            [0.3, 0.2, 0.1],
+            ax=axes[1],
+            label="base",
+        )
+        sensitivity = plot_win_first_sensitivity(
+            [0.0, 0.05, 0.1],
+            [0.5, 0.6, 0.7],
+            parameter_name="interest force",
+            ax=axes[2],
+        )
+
+        assert surface is axes[0]
+        assert hazard is axes[1]
+        assert sensitivity is axes[2]
+        assert axes[0].get_ylabel() == "initial surplus"
+        assert axes[1].get_title() == "Maximum-before-default hazard"
+        assert axes[2].get_xlabel() == "interest force"
+    finally:
+        plt.close(fig)
+
+    with pytest.raises(ValueError, match="shape"):
+        plot_win_first_surface(surplus, gain, probabilities[:, :1])
+    with pytest.raises(ValueError, match="non-negative"):
+        plot_maximum_before_default_hazard([0.0], [-0.1])
+    with pytest.raises(ValueError, match=r"\[0, 1\]"):
+        plot_win_first_sensitivity([1.0], [1.2])
 
 
 def test_plot_terminal_reserve_distribution_marks_zero_and_quantiles():

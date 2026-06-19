@@ -96,6 +96,8 @@ Cramer-Lundberg primary-claim models with linear severity scaling:
   bounds;
 - Picard-Lefevre generalized-Appell base polynomials, coefficients and
   homogeneous finite-time boundary formulas;
+- constant-interest exponential ruin, double-barrier win-first probabilities,
+  maximum-before-default hazards and sensitivity plots;
 - Lundberg adjustment coefficients, bounds and light-tail asymptotics;
 - Pollaczek-Khinchine Monte Carlo via equilibrium claim sampling;
 - discrete Pollaczek-Khinchine/Panjer approximations for ultimate ruin;

@@ -74,12 +74,13 @@ def test_constant_prevention_optimizer_handles_activation_threshold():
             return 1.0
         return math.exp(-decay * (amount - threshold))
 
-    result = optimize_constant_prevention(
-        exponential(rate=1.0),
-        premium_rate=premium_rate,
-        frequency_function=frequency,
-        activation_threshold=threshold,
-    )
+    with pytest.warns(PreventionResponseWarning):
+        result = optimize_constant_prevention(
+            exponential(rate=1.0),
+            premium_rate=premium_rate,
+            frequency_function=frequency,
+            activation_threshold=threshold,
+        )
 
     assert result.amount == pytest.approx(premium_rate - 1.0 / decay, abs=2e-5)
     assert result.boundary == "interior"
@@ -96,12 +97,13 @@ def test_constant_prevention_optimizer_compares_threshold_candidate_to_zero():
             return 1.0
         return math.exp(-decay * (amount - threshold))
 
-    result = optimize_constant_prevention(
-        exponential(rate=1.0),
-        premium_rate=premium_rate,
-        frequency_function=frequency,
-        activation_threshold=threshold,
-    )
+    with pytest.warns(PreventionResponseWarning):
+        result = optimize_constant_prevention(
+            exponential(rate=1.0),
+            premium_rate=premium_rate,
+            frequency_function=frequency,
+            activation_threshold=threshold,
+        )
 
     assert result.amount == pytest.approx(0.0)
     assert result.boundary == "zero"
@@ -154,6 +156,16 @@ def test_prevention_response_validator_warns_on_shape_violations():
         validate_prevention_response(kinked_response, max_prevention=1.0)
 
 
+def test_constant_prevention_optimizer_warns_for_invalid_response_shape():
+    with pytest.warns(PreventionResponseWarning, match="decreasing"):
+        optimize_constant_prevention(
+            exponential(rate=1.0),
+            premium_rate=10.0,
+            frequency_function=lambda p: 1.0 + p,
+            max_prevention=1.0,
+        )
+
+
 def test_expected_surplus_optimizer_matches_gauchon_closed_form_condition():
     decay = 2.0
     result = optimize_expected_surplus_prevention(
@@ -201,14 +213,15 @@ def test_expected_surplus_optimizer_respects_threshold_and_upper_bound():
             return 1.0
         return math.exp(-decay * (amount - threshold))
 
-    result = optimize_expected_surplus_prevention(
-        exponential(rate=1.0),
-        premium_rate=8.0,
-        frequency_function=frequency,
-        horizon=1.0,
-        activation_threshold=threshold,
-        max_prevention=5.0,
-    )
+    with pytest.warns(PreventionResponseWarning):
+        result = optimize_expected_surplus_prevention(
+            exponential(rate=1.0),
+            premium_rate=8.0,
+            frequency_function=frequency,
+            horizon=1.0,
+            activation_threshold=threshold,
+            max_prevention=5.0,
+        )
 
     expected_amount = threshold + math.log(decay) / decay
     assert result.amount == pytest.approx(expected_amount, abs=2e-5)
@@ -288,6 +301,16 @@ def test_periodic_prevention_accepts_custom_convex_response():
     assert periodic_controlled_pressure(weights, result.amounts, prevention_response=response) == (
         pytest.approx(result.controlled_pressure)
     )
+
+
+def test_periodic_prevention_optimizer_warns_for_invalid_response_shape():
+    with pytest.warns(PreventionResponseWarning, match="decreasing"):
+        optimize_periodic_prevention_calendar(
+            [1.0, 2.0, 3.0],
+            annual_budget=0.2,
+            max_prevention=1.0,
+            prevention_response=lambda p: 1.0 + p,
+        )
 
 
 def test_periodic_pressure_weights_and_net_profit_match_annual_definitions():

@@ -53,7 +53,16 @@ features in scientific work.
 - Picard, P., and Lefevre, C. (1998). The moments of ruin time in the classical
   risk model with discrete claim size distribution. *Insurance: Mathematics
   and Economics*, 23(2), 157-172.
+- Rulliere, D., and Loisel, S. (2005). The win-first probability under
+  interest force. Working paper, Universite Lyon 1.
+- Segerdahl, C.-O. (1942). Uber einige risikotheoretische Fragestellungen.
+  *Skandinavisk Aktuarietidskrift*, 25, 43-83.
 - Seal, H. L. (1969). *Stochastic Theory of a Risk Business*. Wiley, New York.
+- Sundt, B., and Teugels, J. L. (1995). Ruin estimates under interest force.
+  *Insurance: Mathematics and Economics*, 16(1), 7-22.
+- Sundt, B., and Teugels, J. L. (1997). The adjustment function in ruin
+  estimates under interest force. *Insurance: Mathematics and Economics*,
+  19(1), 85-94.
 - Takacs, L. (1962). A generalization of the ballot problem and its application
   in the theory of queues. *Journal of the American Statistical Association*,
   57(298), 327-337.

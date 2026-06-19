@@ -98,6 +98,15 @@ from .integer_byclaims import (
     simulate_integer_byclaim_path,
     simulate_integer_byclaim_terminal_reserves,
 )
+from .interest import (
+    maximum_before_default_hazard,
+    maximum_before_default_survival,
+    non_ruin_exponential_interest_force,
+    ultimate_ruin_exponential_interest_force,
+    win_first_probability_exponential_interest_force,
+    win_first_probability_from_non_ruin,
+    win_first_time_bound,
+)
 from .models import (
     ByClaimModel,
     CapitalInjectionModel,
@@ -140,6 +149,7 @@ from .plotting import (
     plot_finite_time_lundberg_bounds,
     plot_integer_byclaim_counts,
     plot_integer_byclaim_path,
+    plot_maximum_before_default_hazard,
     plot_deficit_at_ruin,
     plot_finite_time_appell_coefficients,
     plot_finite_time_discrete_boundary,
@@ -154,6 +164,8 @@ from .plotting import (
     plot_ruin_time_histogram,
     plot_surplus_before_ruin,
     plot_terminal_reserve_distribution,
+    plot_win_first_sensitivity,
+    plot_win_first_surface,
 )
 from .results import GerberShiuResult, RuinEstimate, SimulationPath
 from .simulation import estimate_ruin_probability, simulate_path, simulate_terminal_reserves
@@ -247,7 +259,10 @@ __all__ = [
     "lomax",
     "lundberg_bound",
     "limited_moment",
+    "maximum_before_default_hazard",
+    "maximum_before_default_survival",
     "mixture_exponential",
+    "non_ruin_exponential_interest_force",
     "optimize_constant_prevention",
     "optimize_expected_surplus_prevention",
     "optimize_heavy_tail_prevention_calendar",
@@ -264,6 +279,7 @@ __all__ = [
     "pareto",
     "phase_type",
     "panjer_recursion",
+    "plot_maximum_before_default_hazard",
     "plot_integer_byclaim_counts",
     "plot_discrete_time_deficit_cdf",
     "plot_discrete_time_surplus_cdf",
@@ -283,6 +299,8 @@ __all__ = [
     "plot_ruin_time_histogram",
     "plot_surplus_before_ruin",
     "plot_terminal_reserve_distribution",
+    "plot_win_first_sensitivity",
+    "plot_win_first_surface",
     "pollaczek_khinchine_monte_carlo",
     "raw_moment",
     "safety_loading",
@@ -299,8 +317,12 @@ __all__ = [
     "ruin_deficit_quantile",
     "surplus_cdf_given_survival",
     "ultimate_ruin_exponential",
+    "ultimate_ruin_exponential_interest_force",
     "ultimate_ruin_hyperexponential",
     "ultimate_ruin_phase_type",
     "ultimate_ruin_panjer",
+    "win_first_probability_exponential_interest_force",
+    "win_first_probability_from_non_ruin",
+    "win_first_time_bound",
     "weibull",
 ]
