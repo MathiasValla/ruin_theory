@@ -88,7 +88,8 @@ Cramer-Lundberg primary-claim models with linear severity scaling:
 - exact finite-time ruin for integer-valued claim sizes and real reserves by stable
   Seal/Takacs formulas, Picard-Lefevre's formula and inventory recursions;
 - exact finite-time inventory recursions for deterministic increasing
-  boundaries and interval-specific non-homogeneous Poisson arrival means;
+  boundaries, automatic inverse crossing dates and non-homogeneous Poisson
+  arrival means;
 - Lundberg adjustment coefficients, bounds and light-tail asymptotics;
 - Pollaczek-Khinchine Monte Carlo via equilibrium claim sampling;
 - discrete Pollaczek-Khinchine/Panjer approximations for ultimate ruin;

@@ -774,6 +774,14 @@ Available functions:
   `convention="nonpositive"` treats zero reserve as ruin. Use
   `boundary_kind="crossing"` when `inventory_times` are inverse crossing dates
   `v_n`, as in Picard-Lefevre and Rulliere-Loisel formulas.
+- `finite_time_discrete_boundary_crossings(boundary, horizon, root_tol=1e-10,
+  max_bisection=80)`: builds the inverse crossing grid `v_n = inf{t:
+  h(t) >= n}` for an increasing boundary function.
+- `finite_time_ruin_discrete_boundary_function(claim_pmf, boundary, horizon,
+  claim_arrival_rate=None, cumulative_arrival_mean=None,
+  convention="negative")`: exact finite-time ruin directly from a boundary
+  function. Provide either a homogeneous arrival rate or a cumulative
+  non-homogeneous Poisson mean `Lambda(t)`.
 - `finite_time_discrete_computation_set(initial_capital, premium_units,
   method="seal")`: returns the `(tau, j)` points used by the selected formula,
   for reproducing Picard-Lefevre vs Seal/Takacs computation-set figures.
@@ -858,7 +866,7 @@ print(ultimate_ruin_panjer(model, u, step=0.05, max_value=30.0))
 Exact finite-time lattice example:
 
 ```python
-from ruin_theory import finite_time_ruin_discrete
+from ruin_theory import finite_time_ruin_discrete, finite_time_ruin_discrete_boundary_function
 
 # Deterministic unit claims: P(W = 1) = 1.
 ruin = finite_time_ruin_discrete(
@@ -882,6 +890,16 @@ details = finite_time_ruin_discrete(
 )
 print(details.inventory_times)
 print(details.survival_probabilities)
+
+boundary_details = finite_time_ruin_discrete_boundary_function(
+    claim_pmf=[0.0, 0.25, 0.50, 0.25],
+    boundary=lambda time: 4.0 + 1.3 * time,
+    horizon=4.2,
+    claim_arrival_rate=0.8,
+    return_result=True,
+)
+print(boundary_details.inventory_times)
+print(boundary_details.ruin_probability)
 ```
 
 ## Gerber-Shiu Diagnostics
@@ -1074,8 +1092,8 @@ Implemented now:
 - Exact finite-time ruin probabilities for integer-valued claim sizes using
   Seal/Takacs, Picard-Lefevre and direct inventory-recursion formulas.
 - Exact finite-time inventory recursions for increasing deterministic
-  boundaries, inverse crossing dates and interval-specific non-homogeneous
-  Poisson arrival means.
+  boundaries, automatically generated inverse crossing dates and
+  interval-specific or cumulative non-homogeneous Poisson arrival means.
 - Phase-type severity distributions and exact Cramer-Lundberg ultimate ruin
   probabilities for phase-type primary claims.
 - Loss moments, coverage transformations and lattice discretization.
@@ -1100,8 +1118,6 @@ Planned extensions:
 - Matrix-valued/closed-form Gerber-Shiu solvers beyond simulation diagnostics.
 - Finite-time exact discrete extensions from Picard-Lefevre,
   Rulliere-Loisel, Lefevre-Loisel and Castaner et al.:
-  - Full non-constant premium-function builders `h(t)` with automatic inverse
-    boundary-date extraction beyond the current explicit-inventory API.
   - Generalized Appell and Sheffer coefficient engines for arbitrary
     increasing boundaries, including base polynomials, coefficient triangular
     systems and Picard-Lefevre polynomial diagnostics.

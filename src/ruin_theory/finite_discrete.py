@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 import math
 import operator
@@ -63,6 +64,15 @@ class FiniteTimeDiscreteBoundaryResult:
         """Ruin probabilities at the returned inventory dates."""
 
         return 1.0 - self.survival_probabilities
+
+
+@dataclass(frozen=True)
+class FiniteTimeDiscreteBoundaryGrid:
+    """Inventory grid generated from an increasing boundary function."""
+
+    horizon: float
+    inventory_times: np.ndarray
+    boundary_values: np.ndarray
 
 
 def _nonnegative_int(value: int, name: str) -> int:
@@ -238,6 +248,29 @@ def _arrival_means(
     return rate, rate * elapsed
 
 
+def _arrival_means_from_cumulative(
+    cumulative_arrival_mean: Callable[[float], float],
+    times: np.ndarray,
+) -> np.ndarray:
+    if not callable(cumulative_arrival_mean):
+        raise TypeError("cumulative_arrival_mean must be callable")
+    values: list[float] = []
+    for time in np.concatenate(([0.0], times)):
+        try:
+            value = float(cumulative_arrival_mean(float(time)))
+        except (TypeError, ValueError) as exc:
+            raise TypeError("cumulative_arrival_mean must return numeric values") from exc
+        if not math.isfinite(value) or value < 0.0:
+            raise ValueError("cumulative_arrival_mean must return finite non-negative values")
+        values.append(value)
+    cumulative = np.asarray(values, dtype=float)
+    means = np.diff(cumulative)
+    if np.any(means < -1e-12):
+        raise ValueError("cumulative_arrival_mean must be non-decreasing")
+    means[np.abs(means) <= 1e-12] = 0.0
+    return means
+
+
 def _retained_count_from_boundary(boundary_value: float, convention: str) -> int:
     boundary = _finite_nonnegative(boundary_value, "boundary_values")
     if convention == "negative":
@@ -248,6 +281,98 @@ def _retained_count_from_boundary(boundary_value: float, convention: str) -> int
 def _retained_count_from_crossing(boundary_value: float) -> int:
     boundary = _finite_nonnegative(boundary_value, "boundary_values")
     return _ceil_nonnegative(boundary)
+
+
+def _call_boundary(boundary: Callable[[float], float], time: float) -> float:
+    try:
+        value = float(boundary(float(time)))
+    except (TypeError, ValueError) as exc:
+        raise TypeError("boundary must return numeric values") from exc
+    if not math.isfinite(value) or value < 0.0:
+        raise ValueError("boundary must return finite non-negative values")
+    return value
+
+
+def _boundary_crossing_time(
+    boundary: Callable[[float], float],
+    *,
+    level: int,
+    low: float,
+    high: float,
+    tol: float,
+    max_iter: int,
+) -> float:
+    if _call_boundary(boundary, low) >= level:
+        return low
+    if _call_boundary(boundary, high) < level:
+        raise ValueError("boundary does not reach all required integer levels")
+    left = low
+    right = high
+    for _ in range(max_iter):
+        middle = 0.5 * (left + right)
+        if right - left <= tol:
+            break
+        if _call_boundary(boundary, middle) >= level:
+            right = middle
+        else:
+            left = middle
+    return right
+
+
+def finite_time_discrete_boundary_crossings(
+    boundary: Callable[[float], float],
+    *,
+    horizon: float,
+    root_tol: float = 1e-10,
+    max_bisection: int = 80,
+) -> FiniteTimeDiscreteBoundaryGrid:
+    """Build inverse crossing dates for an increasing deterministic boundary.
+
+    The returned grid contains the integer levels crossed before ``horizon``,
+    plus the terminal horizon when the boundary does not end exactly on the
+    last crossed integer level.
+    """
+
+    if not callable(boundary):
+        raise TypeError("boundary must be callable")
+    time = _finite_nonnegative(horizon, "horizon")
+    tol = _finite_positive(root_tol, "root_tol")
+    iterations = _nonnegative_int(max_bisection, "max_bisection")
+    if iterations == 0:
+        raise ValueError("max_bisection must be positive")
+
+    start_value = _call_boundary(boundary, 0.0)
+    end_value = _call_boundary(boundary, time)
+    if end_value + 1e-12 < start_value:
+        raise ValueError("boundary must be non-decreasing on the horizon")
+
+    first_level = _floor_nonnegative(start_value) + 1
+    last_level = _floor_nonnegative(end_value)
+    times: list[float] = []
+    values: list[float] = []
+    low = 0.0
+    for level in range(first_level, last_level + 1):
+        crossing = _boundary_crossing_time(
+            boundary,
+            level=level,
+            low=low,
+            high=time,
+            tol=tol,
+            max_iter=iterations,
+        )
+        times.append(crossing)
+        values.append(float(level))
+        low = crossing
+
+    if not times or not math.isclose(times[-1], time, rel_tol=0.0, abs_tol=tol):
+        times.append(time)
+        values.append(end_value)
+
+    return FiniteTimeDiscreteBoundaryGrid(
+        horizon=time,
+        inventory_times=np.asarray(times, dtype=float),
+        boundary_values=np.asarray(values, dtype=float),
+    )
 
 
 def finite_time_discrete_computation_set(
@@ -477,8 +602,11 @@ def _inventory_from_counts(
     survivals: list[float] = []
 
     for retained, mean in zip(retained_counts, arrival_means, strict=True):
-        increment = _compound_poisson_lattice_pmf(claim_pmf, float(mean), max_count - 1)
-        convolved = np.convolve(state, increment)[:max_count]
+        if math.isclose(float(mean), 0.0, rel_tol=0.0, abs_tol=1e-15):
+            convolved = state
+        else:
+            increment = _compound_poisson_lattice_pmf(claim_pmf, float(mean), max_count - 1)
+            convolved = np.convolve(state, increment)[:max_count]
         next_state = np.zeros_like(state)
         retained = min(int(retained), max_count)
         if retained > 0:
@@ -616,6 +744,68 @@ def finite_time_ruin_discrete_boundary(
         survival_probabilities=survival_grid,
         state_probabilities=state,
         convention=f"{selected_convention}; boundary_kind={selected_kind}",
+    )
+
+
+def finite_time_ruin_discrete_boundary_function(
+    claim_pmf: ArrayLike,
+    *,
+    boundary: Callable[[float], float],
+    horizon: float,
+    claim_arrival_rate: float | None = None,
+    cumulative_arrival_mean: Callable[[float], float] | None = None,
+    convention: BoundaryRuinConvention = "negative",
+    root_tol: float = 1e-10,
+    max_bisection: int = 80,
+    return_result: bool = False,
+) -> float | FiniteTimeDiscreteBoundaryResult:
+    """Exact finite-time ruin from an increasing boundary function ``h(t)``."""
+
+    selected_convention = _boundary_convention(convention)
+    grid = finite_time_discrete_boundary_crossings(
+        boundary,
+        horizon=horizon,
+        root_tol=root_tol,
+        max_bisection=max_bisection,
+    )
+    if (claim_arrival_rate is None) == (cumulative_arrival_mean is None):
+        raise ValueError("provide exactly one of claim_arrival_rate or cumulative_arrival_mean")
+    if (
+        selected_convention == "nonpositive"
+        and math.isclose(_call_boundary(boundary, 0.0), 0.0, rel_tol=0.0, abs_tol=root_tol)
+    ):
+        pmf = _claim_pmf(claim_pmf)
+        empty = np.array([], dtype=float)
+        if not return_result:
+            return 1.0
+        return FiniteTimeDiscreteBoundaryResult(
+            horizon=grid.horizon,
+            claim_arrival_rate=claim_arrival_rate,
+            arrival_means=empty,
+            claim_pmf=pmf,
+            survival_probability=0.0,
+            ruin_probability=1.0,
+            inventory_times=empty,
+            retained_counts=np.array([], dtype=int),
+            boundary_values=empty,
+            survival_probabilities=empty,
+            state_probabilities=empty,
+            convention=f"{selected_convention}; boundary_kind=crossing; initial ruin",
+        )
+    arrival_means = (
+        None
+        if cumulative_arrival_mean is None
+        else _arrival_means_from_cumulative(cumulative_arrival_mean, grid.inventory_times)
+    )
+    return finite_time_ruin_discrete_boundary(
+        claim_pmf,
+        inventory_times=grid.inventory_times,
+        boundary_values=grid.boundary_values,
+        claim_arrival_rate=claim_arrival_rate,
+        arrival_means=arrival_means,
+        convention=selected_convention,
+        boundary_kind="crossing",
+        return_result=return_result,
     )
 
 

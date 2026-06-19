@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 
 from ruin_theory import (
-    finite_time_ruin_discrete_boundary,
+    finite_time_ruin_discrete_boundary_function,
     plot_finite_time_discrete_boundary,
     finite_time_ruin_discrete,
     plot_finite_time_discrete_computation_set,
@@ -46,13 +46,12 @@ def main() -> None:
     print("\nInventory dates:", np.round(result.inventory_times, 4))
     print("Survival at inventory dates:", np.round(result.survival_probabilities, 6))
 
-    boundary_result = finite_time_ruin_discrete_boundary(
+    boundary_result = finite_time_ruin_discrete_boundary_function(
         [0.0, 0.25, 0.50, 0.25],
-        inventory_times=result.inventory_times,
-        boundary_values=4.0 + 1.3 * result.inventory_times,
+        boundary=lambda time: 4.0 + 1.3 * time,
+        horizon=4.2,
         claim_arrival_rate=0.8,
         convention="negative",
-        boundary_kind="crossing",
         return_result=True,
     )
     print("Boundary recursion psi(4, 4.2)=", f"{boundary_result.ruin_probability:.12g}")

@@ -4,9 +4,12 @@ import numpy as np
 import pytest
 
 from ruin_theory import (
+    FiniteTimeDiscreteBoundaryGrid,
     FiniteTimeDiscreteBoundaryResult,
     FiniteTimeDiscreteRuinResult,
     compound_poisson_lattice_pmf,
+    finite_time_discrete_boundary_crossings,
+    finite_time_ruin_discrete_boundary_function,
     finite_time_ruin_discrete_boundary,
     finite_time_ruin_discrete_inventory,
     finite_time_ruin_discrete,
@@ -132,6 +135,40 @@ def test_boundary_inventory_reproduces_linear_inventory_formula():
     np.testing.assert_allclose(boundary.survival_probabilities, linear.survival_probabilities)
 
 
+def test_boundary_crossing_grid_matches_linear_inverse_dates():
+    grid = finite_time_discrete_boundary_crossings(lambda time: 4.0 + 1.3 * time, horizon=4.2)
+
+    assert isinstance(grid, FiniteTimeDiscreteBoundaryGrid)
+    np.testing.assert_allclose(
+        grid.inventory_times,
+        [1 / 1.3, 2 / 1.3, 3 / 1.3, 4 / 1.3, 5 / 1.3, 4.2],
+    )
+    np.testing.assert_allclose(grid.boundary_values, [5.0, 6.0, 7.0, 8.0, 9.0, 9.46])
+
+
+def test_boundary_function_reproduces_linear_inventory_formula():
+    claim_pmf = [0.0, 0.25, 0.5, 0.25]
+    linear = finite_time_ruin_discrete(
+        claim_pmf,
+        initial_capital=4,
+        premium_rate=1.3,
+        claim_arrival_rate=0.8,
+        horizon=4.2,
+        method="inventory",
+        return_result=True,
+    )
+    boundary = finite_time_ruin_discrete_boundary_function(
+        claim_pmf,
+        boundary=lambda time: 4.0 + 1.3 * time,
+        horizon=4.2,
+        claim_arrival_rate=0.8,
+        return_result=True,
+    )
+
+    assert boundary.ruin_probability == pytest.approx(linear.ruin_probability)
+    np.testing.assert_allclose(boundary.survival_probabilities, linear.survival_probabilities)
+
+
 def test_boundary_conventions_handle_ruin_at_zero():
     # Constant boundary h(t)=1 over [0,1] with unit claims. For negative ruin,
     # zero reserve is allowed, so at most one claim can occur. For non-positive
@@ -153,6 +190,43 @@ def test_boundary_conventions_handle_ruin_at_zero():
 
     assert negative == pytest.approx(1.0 - 2.0 * math.exp(-1.0))
     assert nonpositive == pytest.approx(1.0 - math.exp(-1.0))
+
+
+def test_boundary_function_accepts_nonhomogeneous_poisson_mean():
+    boundary = lambda time: 0.6 + time
+    result = finite_time_ruin_discrete_boundary_function(
+        [0.0, 1.0],
+        boundary=boundary,
+        horizon=1.0,
+        cumulative_arrival_mean=lambda time: time * time,
+        return_result=True,
+    )
+    manual = finite_time_ruin_discrete_inventory(
+        [0.0, 1.0],
+        inventory_times=[0.4, 1.0],
+        retained_counts=[1, 2],
+        arrival_means=[0.16, 0.84],
+        return_result=True,
+    )
+
+    assert result.claim_arrival_rate is None
+    assert result.ruin_probability == pytest.approx(manual.ruin_probability)
+    np.testing.assert_allclose(result.arrival_means, [0.16, 0.84], atol=1e-10)
+
+
+def test_boundary_function_handles_nonpositive_initial_ruin():
+    result = finite_time_ruin_discrete_boundary_function(
+        [0.0, 1.0],
+        boundary=lambda time: time,
+        horizon=1.0,
+        claim_arrival_rate=1.0,
+        convention="nonpositive",
+        return_result=True,
+    )
+
+    assert result.ruin_probability == 1.0
+    assert result.survival_probability == 0.0
+    assert result.inventory_times.size == 0
 
 
 def test_inventory_recursion_accepts_interval_arrival_means():
@@ -249,4 +323,23 @@ def test_finite_discrete_formulas_validate_inputs():
             inventory_times=[1.0],
             retained_counts=[1, 2],
             claim_arrival_rate=1.0,
+        )
+    with pytest.raises(TypeError, match="boundary"):
+        finite_time_discrete_boundary_crossings(3.0, horizon=1.0)
+    with pytest.raises(ValueError, match="non-decreasing"):
+        finite_time_discrete_boundary_crossings(lambda time: 2.0 - time, horizon=1.0)
+    with pytest.raises(ValueError, match="exactly one"):
+        finite_time_ruin_discrete_boundary_function(
+            [0.0, 1.0],
+            boundary=lambda time: time + 1.0,
+            horizon=1.0,
+            claim_arrival_rate=1.0,
+            cumulative_arrival_mean=lambda time: time,
+        )
+    with pytest.raises(ValueError, match="non-decreasing"):
+        finite_time_ruin_discrete_boundary_function(
+            [0.0, 1.0],
+            boundary=lambda time: time + 1.0,
+            horizon=1.0,
+            cumulative_arrival_mean=lambda time: 1.0 - time,
         )
