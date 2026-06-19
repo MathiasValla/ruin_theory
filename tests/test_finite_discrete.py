@@ -4,11 +4,15 @@ import numpy as np
 import pytest
 
 from ruin_theory import (
+    FiniteTimeDiscreteAppellResult,
     FiniteTimeDiscreteBoundaryGrid,
     FiniteTimeDiscreteBoundaryResult,
     FiniteTimeDiscreteRuinResult,
+    compound_poisson_appell_base,
     compound_poisson_lattice_pmf,
+    finite_time_discrete_appell_coefficients,
     finite_time_discrete_boundary_crossings,
+    finite_time_ruin_discrete_appell,
     finite_time_ruin_discrete_boundary_function,
     finite_time_ruin_discrete_boundary,
     finite_time_ruin_discrete_inventory,
@@ -20,6 +24,18 @@ def test_compound_poisson_lattice_pmf_matches_poisson_for_unit_claims():
     pmf = compound_poisson_lattice_pmf([0.0, 1.0], mean=2.0, max_aggregate=4)
     expected = np.exp(-2.0) * np.array([1.0, 2.0, 2.0, 4.0 / 3.0, 2.0 / 3.0])
     np.testing.assert_allclose(pmf, expected)
+
+
+def test_compound_poisson_appell_base_matches_unit_claim_polynomials():
+    values = compound_poisson_appell_base(
+        [0.0, 1.0],
+        claim_arrival_rate=2.0,
+        time=1.5,
+        max_degree=4,
+    )
+    expected = np.array([1.0, 3.0, 4.5, 4.5, 3.375])
+
+    np.testing.assert_allclose(values, expected)
 
 
 def test_seal_formula_reproduces_de_vylder_deterministic_claim_table():
@@ -167,6 +183,60 @@ def test_boundary_function_reproduces_linear_inventory_formula():
 
     assert boundary.ruin_probability == pytest.approx(linear.ruin_probability)
     np.testing.assert_allclose(boundary.survival_probabilities, linear.survival_probabilities)
+
+
+def test_generalized_appell_reproduces_boundary_inventory_formula():
+    claim_pmf = [0.0, 0.25, 0.5, 0.25]
+    boundary = lambda time: 4.0 + 1.3 * time
+    inventory = finite_time_ruin_discrete_boundary_function(
+        claim_pmf,
+        boundary=boundary,
+        horizon=4.2,
+        claim_arrival_rate=0.8,
+        return_result=True,
+    )
+    appell = finite_time_ruin_discrete_appell(
+        claim_pmf,
+        boundary=boundary,
+        horizon=4.2,
+        claim_arrival_rate=0.8,
+        return_result=True,
+    )
+
+    assert isinstance(appell, FiniteTimeDiscreteAppellResult)
+    assert appell.ruin_probability == pytest.approx(inventory.ruin_probability, abs=2e-9)
+    assert appell.appell_coefficients[0] == pytest.approx(1.0)
+    assert appell.state_probabilities.shape == (appell.appell_coefficients.size,)
+
+
+def test_generalized_appell_coefficients_are_available_separately():
+    coefficients = finite_time_discrete_appell_coefficients(
+        [0.0, 1.0],
+        claim_arrival_rate=1.0,
+        boundary=lambda time: 1.0 + time,
+        horizon=2.5,
+    )
+
+    assert coefficients[0] == pytest.approx(1.0)
+    assert coefficients[1] == pytest.approx(0.0)
+    assert coefficients.size == 4
+
+
+def test_generalized_appell_handles_zero_claim_mass_by_thinning():
+    with_zero_claims = finite_time_ruin_discrete_appell(
+        [0.5, 0.5],
+        boundary=lambda time: 0.5 + time,
+        horizon=1.0,
+        claim_arrival_rate=2.0,
+    )
+    thinned = finite_time_ruin_discrete_appell(
+        [0.0, 1.0],
+        boundary=lambda time: 0.5 + time,
+        horizon=1.0,
+        claim_arrival_rate=1.0,
+    )
+
+    assert with_zero_claims == pytest.approx(thinned)
 
 
 def test_boundary_conventions_handle_ruin_at_zero():
@@ -342,4 +412,11 @@ def test_finite_discrete_formulas_validate_inputs():
             boundary=lambda time: time + 1.0,
             horizon=1.0,
             cumulative_arrival_mean=lambda time: 1.0 - time,
+        )
+    with pytest.raises(ValueError, match="non-negative"):
+        compound_poisson_appell_base(
+            [0.0, 1.0],
+            claim_arrival_rate=1.0,
+            time=-1.0,
+            max_degree=2,
         )

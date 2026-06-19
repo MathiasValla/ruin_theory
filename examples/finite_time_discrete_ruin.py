@@ -5,7 +5,9 @@ from __future__ import annotations
 import numpy as np
 
 from ruin_theory import (
+    finite_time_ruin_discrete_appell,
     finite_time_ruin_discrete_boundary_function,
+    plot_finite_time_appell_coefficients,
     plot_finite_time_discrete_boundary,
     finite_time_ruin_discrete,
     plot_finite_time_discrete_computation_set,
@@ -56,6 +58,15 @@ def main() -> None:
     )
     print("Boundary recursion psi(4, 4.2)=", f"{boundary_result.ruin_probability:.12g}")
 
+    appell_result = finite_time_ruin_discrete_appell(
+        [0.0, 0.25, 0.50, 0.25],
+        boundary=lambda time: 4.0 + 1.3 * time,
+        horizon=4.2,
+        claim_arrival_rate=0.8,
+        return_result=True,
+    )
+    print("Appell formula psi(4, 4.2)=", f"{appell_result.ruin_probability:.12g}")
+
     non_integer = finite_time_ruin_discrete(
         deterministic_unit_claim,
         initial_capital=0.5,
@@ -87,7 +98,7 @@ def main() -> None:
         method="seal",
         ax=axes[1, 1],
     )
-    axes[1, 2].axis("off")
+    plot_finite_time_appell_coefficients(appell_result, ax=axes[1, 2])
     if plt.get_backend().lower() == "agg":
         plt.close(fig)
     else:

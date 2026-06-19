@@ -90,6 +90,8 @@ Cramer-Lundberg primary-claim models with linear severity scaling:
 - exact finite-time inventory recursions for deterministic increasing
   boundaries, automatic inverse crossing dates and non-homogeneous Poisson
   arrival means;
+- Picard-Lefevre generalized-Appell base polynomials, coefficients and
+  homogeneous finite-time boundary formulas;
 - Lundberg adjustment coefficients, bounds and light-tail asymptotics;
 - Pollaczek-Khinchine Monte Carlo via equilibrium claim sampling;
 - discrete Pollaczek-Khinchine/Panjer approximations for ultimate ruin;

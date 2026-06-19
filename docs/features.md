@@ -782,6 +782,16 @@ Available functions:
   convention="negative")`: exact finite-time ruin directly from a boundary
   function. Provide either a homogeneous arrival rate or a cumulative
   non-homogeneous Poisson mean `Lambda(t)`.
+- `compound_poisson_appell_base(claim_pmf, claim_arrival_rate, time,
+  max_degree)`: evaluates the Picard-Lefevre convolution-type base
+  polynomials `e_n(t)`.
+- `finite_time_discrete_appell_coefficients(claim_pmf, claim_arrival_rate,
+  boundary, horizon)`: returns generalized-Appell coefficients
+  `A_k(0)` for a homogeneous compound-Poisson claim process and increasing
+  boundary.
+- `finite_time_ruin_discrete_appell(claim_pmf, boundary, horizon,
+  claim_arrival_rate, convention="negative")`: exact finite-time ruin from
+  the Picard-Lefevre generalized-Appell polynomial representation.
 - `finite_time_discrete_computation_set(initial_capital, premium_units,
   method="seal")`: returns the `(tau, j)` points used by the selected formula,
   for reproducing Picard-Lefevre vs Seal/Takacs computation-set figures.
@@ -866,7 +876,11 @@ print(ultimate_ruin_panjer(model, u, step=0.05, max_value=30.0))
 Exact finite-time lattice example:
 
 ```python
-from ruin_theory import finite_time_ruin_discrete, finite_time_ruin_discrete_boundary_function
+from ruin_theory import (
+    finite_time_ruin_discrete,
+    finite_time_ruin_discrete_appell,
+    finite_time_ruin_discrete_boundary_function,
+)
 
 # Deterministic unit claims: P(W = 1) = 1.
 ruin = finite_time_ruin_discrete(
@@ -900,6 +914,15 @@ boundary_details = finite_time_ruin_discrete_boundary_function(
 )
 print(boundary_details.inventory_times)
 print(boundary_details.ruin_probability)
+
+appell_details = finite_time_ruin_discrete_appell(
+    claim_pmf=[0.0, 0.25, 0.50, 0.25],
+    boundary=lambda time: 4.0 + 1.3 * time,
+    horizon=4.2,
+    claim_arrival_rate=0.8,
+    return_result=True,
+)
+print(appell_details.appell_coefficients)
 ```
 
 ## Gerber-Shiu Diagnostics
@@ -995,6 +1018,9 @@ Available diagnostics:
   survival curve at inventory dates from an inventory-style finite-time result.
 - `plot_finite_time_discrete_boundary(result, ax=None, label=None)`: plot the
   deterministic boundary values stored in a `FiniteTimeDiscreteBoundaryResult`.
+- `plot_finite_time_appell_coefficients(result, ax=None)`: plot the
+  generalized-Appell coefficients returned by
+  `finite_time_ruin_discrete_appell(..., return_result=True)`.
 - `plot_finite_time_discrete_computation_set(initial_capital, premium_units,
   method="seal", ax=None)`: computation-set scatter plot for Picard-Lefevre,
   Seal/Takacs or inventory formulas.
@@ -1094,6 +1120,8 @@ Implemented now:
 - Exact finite-time inventory recursions for increasing deterministic
   boundaries, automatically generated inverse crossing dates and
   interval-specific or cumulative non-homogeneous Poisson arrival means.
+- Picard-Lefevre generalized-Appell coefficients, base polynomials and exact
+  homogeneous finite-time ruin formulas for arbitrary increasing boundaries.
 - Phase-type severity distributions and exact Cramer-Lundberg ultimate ruin
   probabilities for phase-type primary claims.
 - Loss moments, coverage transformations and lattice discretization.
@@ -1118,9 +1146,8 @@ Planned extensions:
 - Matrix-valued/closed-form Gerber-Shiu solvers beyond simulation diagnostics.
 - Finite-time exact discrete extensions from Picard-Lefevre,
   Rulliere-Loisel, Lefevre-Loisel and Castaner et al.:
-  - Generalized Appell and Sheffer coefficient engines for arbitrary
-    increasing boundaries, including base polynomials, coefficient triangular
-    systems and Picard-Lefevre polynomial diagnostics.
+  - Appell-style extensions for non-stationary claim severities, where the
+    homogeneous polynomial convolution structure no longer applies directly.
   - Non-homogeneous compound-Poisson arrivals with time-varying intensity
     `lambda(t)` and time-varying severity laws, including aggregate-increment
     probabilities, exact finite-horizon recursions and computation-set plots.

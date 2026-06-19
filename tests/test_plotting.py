@@ -14,6 +14,7 @@ from ruin_theory.plotting import (
     plot_integer_byclaim_counts,
     plot_integer_byclaim_path,
     plot_deficit_at_ruin,
+    plot_finite_time_appell_coefficients,
     plot_finite_time_discrete_boundary,
     plot_finite_time_discrete_computation_set,
     plot_finite_time_discrete_survival,
@@ -31,6 +32,7 @@ from ruin_theory import (
     BINARByClaimModel,
     INARByClaimModel,
     deterministic,
+    finite_time_ruin_discrete_appell,
     finite_time_ruin_discrete_boundary,
     finite_time_ruin_discrete_inventory,
     finite_time_ruin_discrete,
@@ -269,6 +271,26 @@ def test_plot_finite_time_boundary_diagnostics():
     )
     with pytest.raises(ValueError, match="explicit boundary"):
         plot_finite_time_discrete_boundary(implicit)
+
+
+def test_plot_finite_time_appell_coefficients():
+    result = finite_time_ruin_discrete_appell(
+        [0.0, 1.0],
+        boundary=lambda time: 1.0 + time,
+        horizon=2.0,
+        claim_arrival_rate=1.0,
+        return_result=True,
+    )
+
+    fig, ax = plt.subplots()
+    try:
+        axis = plot_finite_time_appell_coefficients(result, ax=ax)
+
+        assert axis.get_xlabel() == "degree"
+        assert axis.get_ylabel() == "Appell coefficient"
+        assert len(axis.lines) == 2
+    finally:
+        plt.close(fig)
 
 
 def test_plot_gerber_shiu_diagnostics():

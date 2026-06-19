@@ -75,6 +75,22 @@ class FiniteTimeDiscreteBoundaryGrid:
     boundary_values: np.ndarray
 
 
+@dataclass(frozen=True)
+class FiniteTimeDiscreteAppellResult:
+    """Picard-Lefevre generalized-Appell finite-time ruin result."""
+
+    horizon: float
+    claim_arrival_rate: float
+    effective_claim_arrival_rate: float
+    claim_pmf: np.ndarray
+    survival_probability: float
+    ruin_probability: float
+    boundary_grid: FiniteTimeDiscreteBoundaryGrid
+    appell_coefficients: np.ndarray
+    state_probabilities: np.ndarray
+    convention: str
+
+
 def _nonnegative_int(value: int, name: str) -> int:
     try:
         result = operator.index(value)
@@ -281,6 +297,45 @@ def _retained_count_from_boundary(boundary_value: float, convention: str) -> int
 def _retained_count_from_crossing(boundary_value: float) -> int:
     boundary = _finite_nonnegative(boundary_value, "boundary_values")
     return _ceil_nonnegative(boundary)
+
+
+def _positive_claim_process(claim_pmf: np.ndarray, claim_arrival_rate: float) -> tuple[np.ndarray, float]:
+    nonzero_probability = float(np.sum(claim_pmf[1:]))
+    if nonzero_probability <= 0.0:
+        return claim_pmf.copy(), 0.0
+    positive = np.zeros_like(claim_pmf, dtype=float)
+    positive[1:] = claim_pmf[1:] / nonzero_probability
+    return positive, claim_arrival_rate * nonzero_probability
+
+
+def compound_poisson_appell_base(
+    claim_pmf: ArrayLike,
+    *,
+    claim_arrival_rate: float,
+    time: float,
+    max_degree: int,
+) -> np.ndarray:
+    """Evaluate Picard-Lefevre base polynomials ``e_n(t)`` up to ``max_degree``."""
+
+    pmf = _claim_pmf(claim_pmf)
+    rate = _finite_nonnegative(claim_arrival_rate, "claim_arrival_rate")
+    horizon = float(time)
+    if not math.isfinite(horizon):
+        raise ValueError("time must be finite")
+    max_index = _nonnegative_int(max_degree, "max_degree")
+    positive_pmf, effective_rate = _positive_claim_process(pmf, rate)
+    if math.isclose(effective_rate, 0.0, rel_tol=0.0, abs_tol=1e-15):
+        values = np.zeros(max_index + 1, dtype=float)
+        values[0] = 1.0
+        return values
+    if horizon < 0.0:
+        raise ValueError("time must be non-negative for numerical Appell evaluation")
+    aggregate = _compound_poisson_lattice_pmf(
+        positive_pmf,
+        effective_rate * horizon,
+        max_index,
+    )
+    return math.exp(effective_rate * horizon) * aggregate
 
 
 def _call_boundary(boundary: Callable[[float], float], time: float) -> float:
@@ -806,6 +861,136 @@ def finite_time_ruin_discrete_boundary_function(
         convention=selected_convention,
         boundary_kind="crossing",
         return_result=return_result,
+    )
+
+
+def _crossing_time_map(grid: FiniteTimeDiscreteBoundaryGrid) -> dict[int, float]:
+    mapping: dict[int, float] = {}
+    for time, value in zip(grid.inventory_times, grid.boundary_values, strict=True):
+        nearest = round(value)
+        if math.isclose(value, nearest, rel_tol=0.0, abs_tol=1e-10):
+            mapping[int(nearest)] = float(time)
+    return mapping
+
+
+def finite_time_discrete_appell_coefficients(
+    claim_pmf: ArrayLike,
+    *,
+    claim_arrival_rate: float,
+    boundary: Callable[[float], float],
+    horizon: float,
+    root_tol: float = 1e-10,
+    max_bisection: int = 80,
+) -> np.ndarray:
+    """Return generalized-Appell coefficients for a boundary up to ``horizon``."""
+
+    pmf = _claim_pmf(claim_pmf)
+    rate = _finite_nonnegative(claim_arrival_rate, "claim_arrival_rate")
+    grid = finite_time_discrete_boundary_crossings(
+        boundary,
+        horizon=horizon,
+        root_tol=root_tol,
+        max_bisection=max_bisection,
+    )
+    max_degree = _retained_count_from_crossing(_call_boundary(boundary, grid.horizon)) - 1
+    coefficients = np.zeros(max_degree + 1, dtype=float)
+    coefficients[0] = 1.0
+    initial_boundary = _call_boundary(boundary, 0.0)
+    first_constrained = _floor_nonnegative(initial_boundary) + 1
+    crossing_times = _crossing_time_map(grid)
+
+    for degree in range(1, max_degree + 1):
+        if degree < first_constrained:
+            continue
+        crossing_time = crossing_times.get(degree)
+        if crossing_time is None:
+            continue
+        base = compound_poisson_appell_base(
+            pmf,
+            claim_arrival_rate=rate,
+            time=crossing_time,
+            max_degree=degree,
+        )
+        coefficients[degree] = -float(np.dot(coefficients[:degree], base[degree:0:-1]))
+    return coefficients
+
+
+def finite_time_ruin_discrete_appell(
+    claim_pmf: ArrayLike,
+    *,
+    boundary: Callable[[float], float],
+    horizon: float,
+    claim_arrival_rate: float,
+    convention: BoundaryRuinConvention = "negative",
+    root_tol: float = 1e-10,
+    max_bisection: int = 80,
+    return_result: bool = False,
+) -> float | FiniteTimeDiscreteAppellResult:
+    """Exact finite-time ruin via Picard-Lefevre generalized-Appell polynomials."""
+
+    pmf = _claim_pmf(claim_pmf)
+    rate = _finite_nonnegative(claim_arrival_rate, "claim_arrival_rate")
+    selected_convention = _boundary_convention(convention)
+    grid = finite_time_discrete_boundary_crossings(
+        boundary,
+        horizon=horizon,
+        root_tol=root_tol,
+        max_bisection=max_bisection,
+    )
+    if (
+        selected_convention == "nonpositive"
+        and math.isclose(_call_boundary(boundary, 0.0), 0.0, rel_tol=0.0, abs_tol=root_tol)
+    ):
+        empty = np.array([], dtype=float)
+        if not return_result:
+            return 1.0
+        _, effective_rate = _positive_claim_process(pmf, rate)
+        return FiniteTimeDiscreteAppellResult(
+            horizon=grid.horizon,
+            claim_arrival_rate=rate,
+            effective_claim_arrival_rate=effective_rate,
+            claim_pmf=pmf,
+            survival_probability=0.0,
+            ruin_probability=1.0,
+            boundary_grid=grid,
+            appell_coefficients=empty,
+            state_probabilities=empty,
+            convention=f"{selected_convention}; initial ruin",
+        )
+
+    max_degree = _retained_count_from_crossing(_call_boundary(boundary, grid.horizon)) - 1
+    coefficients = finite_time_discrete_appell_coefficients(
+        pmf,
+        claim_arrival_rate=rate,
+        boundary=boundary,
+        horizon=grid.horizon,
+        root_tol=root_tol,
+        max_bisection=max_bisection,
+    )
+    base = compound_poisson_appell_base(
+        pmf,
+        claim_arrival_rate=rate,
+        time=grid.horizon,
+        max_degree=max_degree,
+    )
+    _, effective_rate = _positive_claim_process(pmf, rate)
+    state_polynomials = np.convolve(coefficients, base)[: max_degree + 1]
+    state = math.exp(-effective_rate * grid.horizon) * state_polynomials
+    survival = float(np.clip(np.sum(state), 0.0, 1.0))
+    ruin = float(np.clip(1.0 - survival, 0.0, 1.0))
+    if not return_result:
+        return ruin
+    return FiniteTimeDiscreteAppellResult(
+        horizon=grid.horizon,
+        claim_arrival_rate=rate,
+        effective_claim_arrival_rate=effective_rate,
+        claim_pmf=pmf,
+        survival_probability=survival,
+        ruin_probability=ruin,
+        boundary_grid=grid,
+        appell_coefficients=coefficients,
+        state_probabilities=state,
+        convention=f"{selected_convention}; generalized Appell",
     )
 
 

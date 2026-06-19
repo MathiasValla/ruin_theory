@@ -10,6 +10,7 @@ from matplotlib.axes import Axes
 from numpy.typing import ArrayLike
 
 from .finite_discrete import (
+    FiniteTimeDiscreteAppellResult,
     FiniteTimeDiscreteBoundaryResult,
     FiniteTimeDiscreteMethod,
     FiniteTimeDiscreteRuinResult,
@@ -300,6 +301,29 @@ def plot_finite_time_discrete_boundary(
     axis.set_title("Finite-time lattice boundary")
     if label:
         axis.legend()
+    return axis
+
+
+def plot_finite_time_appell_coefficients(
+    result: FiniteTimeDiscreteAppellResult,
+    *,
+    ax: Axes | None = None,
+) -> Axes:
+    """Plot Picard-Lefevre generalized-Appell coefficients."""
+
+    if not isinstance(result, FiniteTimeDiscreteAppellResult):
+        raise TypeError("result must be a FiniteTimeDiscreteAppellResult")
+    coefficients = np.asarray(result.appell_coefficients, dtype=float)
+    if coefficients.ndim != 1 or coefficients.size == 0:
+        raise ValueError("result does not contain Appell coefficients")
+
+    axis = _axis(ax)
+    degrees = np.arange(coefficients.size)
+    axis.axhline(0.0, color="#222222", linewidth=0.8, linestyle=":")
+    axis.plot(degrees, coefficients, marker="o", color="#4c78a8", linewidth=1.8)
+    axis.set_xlabel("degree")
+    axis.set_ylabel("Appell coefficient")
+    axis.set_title("Generalized-Appell coefficients")
     return axis
 
 
