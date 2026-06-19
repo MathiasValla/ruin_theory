@@ -129,9 +129,11 @@ class GerberShiuResult:
     @property
     def mean_surplus_before_ruin(self) -> float:
         values = self.surplus_before_ruin[self.ruined]
+        values = values[np.isfinite(values)]
         return float(np.mean(values)) if values.size else float("nan")
 
     @property
     def mean_deficit_at_ruin(self) -> float:
         values = self.deficits_at_ruin[self.ruined]
+        values = values[np.isfinite(values)]
         return float(np.mean(values)) if values.size else float("nan")

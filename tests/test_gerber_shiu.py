@@ -84,8 +84,46 @@ def test_gerber_shiu_validates_inputs():
         gerber_shiu_from_paths([])
     with pytest.raises(ValueError, match="discount_rate"):
         gerber_shiu_from_paths([_safe_path()], discount_rate=-1.0)
+    with pytest.raises(TypeError, match="penalty"):
+        gerber_shiu_from_paths([_safe_path()], penalty=1.0)
     with pytest.raises(ValueError, match="penalty"):
         gerber_shiu_from_paths([_ruined_path()], penalty=lambda surplus, deficit: -1.0)
+
+
+def test_estimate_gerber_shiu_validates_simulation_arguments():
+    model = CramerLundbergProcess(
+        initial_capital=1.0,
+        premium_rate=1.0,
+        claim_arrival_rate=1.0,
+        claim_distribution=deterministic(1.0),
+    )
+
+    with pytest.raises(TypeError, match="n_simulations"):
+        estimate_gerber_shiu(model, horizon=1.0, n_simulations=2.5)
+    with pytest.raises(ValueError, match="max_events"):
+        estimate_gerber_shiu(model, horizon=1.0, n_simulations=1, max_events=0)
+
+
+def test_gerber_shiu_reproduces_poisson_first_claim_probability():
+    rate = 1.5
+    horizon = 2.0
+    model = CramerLundbergProcess(
+        initial_capital=0.0,
+        premium_rate=0.0,
+        claim_arrival_rate=rate,
+        claim_distribution=deterministic(1.0),
+    )
+
+    result = estimate_gerber_shiu(
+        model,
+        horizon=horizon,
+        n_simulations=8000,
+        seed=2026,
+    )
+
+    assert result.estimate == pytest.approx(1.0 - math.exp(-rate * horizon), abs=0.015)
+    assert result.mean_surplus_before_ruin == pytest.approx(0.0)
+    assert result.mean_deficit_at_ruin == pytest.approx(1.0)
 
 
 def test_estimate_gerber_shiu_runs_against_risk_process():

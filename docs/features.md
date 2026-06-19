@@ -853,12 +853,14 @@ Arguments:
 
 - `model`: any `RiskProcess` accepted by `simulate_path`.
 - `horizon`: finite simulation horizon.
+- `n_simulations`: positive integer number of Monte Carlo paths.
 - `penalty`: callable `penalty(surplus_before_ruin, deficit_at_ruin)`. If
   omitted, `w == 1`; with `discount_rate=0`, the estimate is the finite-horizon
   ruin probability.
 - `discount_rate`: non-negative `delta` in the Gerber-Shiu transform.
 - `ci_level`: normal confidence interval level for the sample mean of the
   discounted penalty.
+- `max_events`: positive integer event cap passed to `simulate_path`.
 - `return_paths`: return the simulated paths together with the result.
 
 Returned `GerberShiuResult` fields:

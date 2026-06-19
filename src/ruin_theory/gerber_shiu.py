@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 import math
+import operator
 
 import numpy as np
 from scipy import stats
@@ -29,6 +30,24 @@ def _validate_common(discount_rate: float, ci_level: float) -> tuple[float, floa
     if not 0.0 < level < 1.0:
         raise ValueError("ci_level must lie in (0, 1)")
     return discount, level
+
+
+def _positive_int(value: int, name: str) -> int:
+    try:
+        result = operator.index(value)
+    except TypeError as exc:
+        raise TypeError(f"{name} must be an integer") from exc
+    if result <= 0:
+        raise ValueError(f"{name} must be positive")
+    return result
+
+
+def _penalty_function(penalty: PenaltyFunction | None) -> PenaltyFunction:
+    if penalty is None:
+        return lambda surplus, deficit: 1.0
+    if not callable(penalty):
+        raise TypeError("penalty must be callable or None")
+    return penalty
 
 
 def _normal_interval(values: np.ndarray, ci_level: float) -> tuple[float, float, float]:
@@ -62,7 +81,7 @@ def gerber_shiu_from_paths(
     if not all(isinstance(path, SimulationPath) for path in path_list):
         raise TypeError("paths must contain only SimulationPath instances")
     discount, level = _validate_common(discount_rate, ci_level)
-    penalty_function = (lambda surplus, deficit: 1.0) if penalty is None else penalty
+    penalty_function = _penalty_function(penalty)
 
     n = len(path_list)
     ruin_times = np.full(n, np.inf)
@@ -140,9 +159,10 @@ def estimate_gerber_shiu(
     horizon_value = float(horizon)
     if not math.isfinite(horizon_value) or horizon_value <= 0.0:
         raise ValueError("horizon must be positive and finite")
-    if n_simulations <= 0:
-        raise ValueError("n_simulations must be positive")
+    simulation_count = _positive_int(n_simulations, "n_simulations")
+    event_count = _positive_int(max_events, "max_events")
     _validate_common(discount_rate, ci_level)
+    _penalty_function(penalty)
 
     rng = _rng(seed)
     paths = [
@@ -150,10 +170,10 @@ def estimate_gerber_shiu(
             model,
             horizon_value,
             seed=rng,
-            max_events=max_events,
+            max_events=event_count,
             stop_at_ruin=True,
         )
-        for _ in range(int(n_simulations))
+        for _ in range(simulation_count)
     ]
     result = gerber_shiu_from_paths(
         paths,
