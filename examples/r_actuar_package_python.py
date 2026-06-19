@@ -514,10 +514,11 @@ def build_pdf(tables: ActuarTables, figures: list[tuple[plt.Figure, Path]]) -> N
                     "- heavy-tail integrated-tail asymptotics;",
                     "- phase-type distributions and matrix-exponential ruin formulas;",
                     "- INAR/BINAR dependent by-claim simulation and ruin estimates;",
+                    "- Gerber-Shiu penalties and deficit/surplus-before-ruin diagnostics;",
                     "- trajectory, ruin-time, terminal-reserve and ruin-curve plotting.",
                     "",
                     "Planned public APIs:",
-                    "- Gerber-Shiu penalties and deficit/surplus-before-ruin diagnostics.",
+                    "- matrix-valued/closed-form Gerber-Shiu solvers beyond simulation.",
                 ]
             ),
             fontsize=11.5,

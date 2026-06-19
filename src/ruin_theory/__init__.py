@@ -40,6 +40,7 @@ from .formulas import (
     ultimate_ruin_hyperexponential,
     ultimate_ruin_phase_type,
 )
+from .gerber_shiu import estimate_gerber_shiu, gerber_shiu_from_paths
 from .integer_byclaims import (
     BINARByClaimModel,
     INARByClaimModel,
@@ -90,15 +91,18 @@ from .renewal import (
 from .plotting import (
     plot_integer_byclaim_counts,
     plot_integer_byclaim_path,
+    plot_deficit_at_ruin,
+    plot_gerber_shiu_scatter,
     plot_path,
     plot_paths,
     plot_periodic_pressure,
     plot_prevention_calendar,
     plot_ruin_curve,
     plot_ruin_time_histogram,
+    plot_surplus_before_ruin,
     plot_terminal_reserve_distribution,
 )
-from .results import RuinEstimate, SimulationPath
+from .results import GerberShiuResult, RuinEstimate, SimulationPath
 from .simulation import estimate_ruin_probability, simulate_path, simulate_terminal_reserves
 
 __all__ = [
@@ -112,6 +116,7 @@ __all__ = [
     "DiscretizedDistribution",
     "ExpectedSurplusPreventionResult",
     "FrequencyModel",
+    "GerberShiuResult",
     "HeavyTailPreventionResult",
     "INARByClaimModel",
     "IntegerByClaimPath",
@@ -139,10 +144,12 @@ __all__ = [
     "estimate_binar_byclaim_ruin_probability",
     "estimate_inar_byclaim_ruin_probability",
     "estimate_integer_byclaim_ruin_probability",
+    "estimate_gerber_shiu",
     "expected_time_to_ruin_exponential",
     "exponential",
     "finite_time_ruin_exponential",
     "gamma",
+    "gerber_shiu_from_paths",
     "heavy_tail_integrated_tail_asymptotic",
     "heavy_tail_expected_ruin_time_asymptotic",
     "heavy_tail_one_big_jump_ruin_probability",
@@ -167,12 +174,15 @@ __all__ = [
     "panjer_recursion",
     "plot_integer_byclaim_counts",
     "plot_integer_byclaim_path",
+    "plot_deficit_at_ruin",
+    "plot_gerber_shiu_scatter",
     "plot_path",
     "plot_paths",
     "plot_periodic_pressure",
     "plot_prevention_calendar",
     "plot_ruin_curve",
     "plot_ruin_time_histogram",
+    "plot_surplus_before_ruin",
     "plot_terminal_reserve_distribution",
     "pollaczek_khinchine_monte_carlo",
     "raw_moment",

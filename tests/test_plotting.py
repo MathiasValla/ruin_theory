@@ -13,18 +13,22 @@ from matplotlib import pyplot as plt
 from ruin_theory.plotting import (
     plot_integer_byclaim_counts,
     plot_integer_byclaim_path,
+    plot_deficit_at_ruin,
+    plot_gerber_shiu_scatter,
     plot_path,
     plot_paths,
     plot_periodic_pressure,
     plot_prevention_calendar,
     plot_ruin_curve,
     plot_ruin_time_histogram,
+    plot_surplus_before_ruin,
     plot_terminal_reserve_distribution,
 )
 from ruin_theory import (
     BINARByClaimModel,
     INARByClaimModel,
     deterministic,
+    gerber_shiu_from_paths,
     simulate_binar_byclaim_path,
     simulate_inar_byclaim_path,
 )
@@ -56,6 +60,20 @@ def _estimate(ruin_times: np.ndarray, *, horizon: float = 3.0) -> RuinEstimate:
         n_simulations=ruin_times.size,
         horizon=horizon,
         ruin_times=ruin_times,
+    )
+
+
+def _gerber_shiu_path(deficit: float = 1.0, ruin_time: float = 1.0) -> SimulationPath:
+    surplus = 2.0
+    return SimulationPath(
+        times=np.array([0.0, ruin_time, ruin_time]),
+        reserves=np.array([1.0, surplus, -deficit]),
+        claim_times=np.array([ruin_time]),
+        claim_sizes=np.array([surplus + deficit]),
+        ruin_time=ruin_time,
+        horizon=3.0,
+        initial_capital=1.0,
+        premium_rate=1.0,
     )
 
 
@@ -167,6 +185,51 @@ def test_plot_ruin_time_histogram_handles_ruined_and_unruined_samples():
         assert ax.get_ylabel() == "frequency"
         assert ax.get_xlim() == pytest.approx((0.0, 3.0))
         assert len(ax.patches) > 0
+    finally:
+        plt.close(fig)
+
+
+def test_plot_gerber_shiu_diagnostics():
+    result = gerber_shiu_from_paths(
+        [_gerber_shiu_path(1.0, 1.0), _gerber_shiu_path(2.0, 2.0)],
+    )
+
+    fig, axes = plt.subplots(1, 3)
+    try:
+        deficit_axis = plot_deficit_at_ruin(result, ax=axes[0], bins=2)
+        surplus_axis = plot_surplus_before_ruin(result, ax=axes[1], bins=2)
+        scatter_axis = plot_gerber_shiu_scatter(result, ax=axes[2])
+
+        assert deficit_axis.get_title() == "Deficit at ruin"
+        assert surplus_axis.get_title() == "Surplus before ruin"
+        assert scatter_axis.get_title() == "Gerber-Shiu ruin diagnostics"
+        assert len(deficit_axis.patches) == 2
+        assert len(surplus_axis.patches) >= 1
+        assert len(scatter_axis.collections) == 1
+    finally:
+        plt.close(fig)
+
+
+def test_plot_gerber_shiu_diagnostics_handle_no_ruin():
+    safe = SimulationPath(
+        times=np.array([0.0, 3.0]),
+        reserves=np.array([1.0, 4.0]),
+        claim_times=np.empty(0),
+        claim_sizes=np.empty(0),
+        ruin_time=None,
+        horizon=3.0,
+        initial_capital=1.0,
+        premium_rate=1.0,
+    )
+    result = gerber_shiu_from_paths([safe])
+
+    fig, axes = plt.subplots(1, 3)
+    try:
+        plot_deficit_at_ruin(result, ax=axes[0])
+        plot_surplus_before_ruin(result, ax=axes[1])
+        plot_gerber_shiu_scatter(result, ax=axes[2])
+
+        assert [axis.texts[0].get_text() for axis in axes] == ["no ruin observed"] * 3
     finally:
         plt.close(fig)
 

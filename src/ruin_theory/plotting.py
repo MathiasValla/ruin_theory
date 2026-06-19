@@ -11,7 +11,7 @@ from numpy.typing import ArrayLike
 
 from .integer_byclaims import IntegerByClaimPath
 from .prevention import PeriodicPreventionResult
-from .results import RuinEstimate, SimulationPath
+from .results import GerberShiuResult, RuinEstimate, SimulationPath
 
 
 def _axis(ax: Axes | None) -> Axes:
@@ -227,6 +227,119 @@ def plot_ruin_time_histogram(
     axis.set_xlabel("time to ruin")
     axis.set_ylabel("frequency")
     axis.set_title("Conditional time to ruin")
+    return axis
+
+
+def _ruined_values(result: GerberShiuResult, values: np.ndarray, name: str) -> np.ndarray:
+    if not isinstance(result, GerberShiuResult):
+        raise TypeError("result must be a GerberShiuResult")
+    selected = np.asarray(values, dtype=float)[result.ruined]
+    selected = selected[np.isfinite(selected)]
+    if selected.size == 0:
+        return np.empty(0, dtype=float)
+    if np.any(selected < 0.0):
+        raise ValueError(f"{name} must be non-negative")
+    return selected
+
+
+def plot_deficit_at_ruin(
+    result: GerberShiuResult,
+    *,
+    ax: Axes | None = None,
+    bins: int = 30,
+) -> Axes:
+    """Plot the conditional distribution of the deficit at ruin."""
+
+    axis = _axis(ax)
+    deficits = _ruined_values(result, result.deficits_at_ruin, "deficits_at_ruin")
+    if deficits.size == 0:
+        axis.text(
+            0.5,
+            0.5,
+            "no ruin observed",
+            ha="center",
+            va="center",
+            transform=axis.transAxes,
+        )
+        axis.set_yticks([])
+    else:
+        axis.hist(deficits, bins=bins, color="#b84a39", alpha=0.78, edgecolor="white")
+        axis.axvline(float(np.mean(deficits)), color="#222222", linewidth=1.2, linestyle="--")
+    axis.set_xlabel("deficit at ruin")
+    axis.set_ylabel("count")
+    axis.set_title("Deficit at ruin")
+    return axis
+
+
+def plot_surplus_before_ruin(
+    result: GerberShiuResult,
+    *,
+    ax: Axes | None = None,
+    bins: int = 30,
+) -> Axes:
+    """Plot the conditional distribution of the surplus immediately before ruin."""
+
+    axis = _axis(ax)
+    surplus = _ruined_values(result, result.surplus_before_ruin, "surplus_before_ruin")
+    if surplus.size == 0:
+        axis.text(
+            0.5,
+            0.5,
+            "no ruin observed",
+            ha="center",
+            va="center",
+            transform=axis.transAxes,
+        )
+        axis.set_yticks([])
+    else:
+        axis.hist(surplus, bins=bins, color="#2f6f9f", alpha=0.78, edgecolor="white")
+        axis.axvline(float(np.mean(surplus)), color="#222222", linewidth=1.2, linestyle="--")
+    axis.set_xlabel("surplus before ruin")
+    axis.set_ylabel("count")
+    axis.set_title("Surplus before ruin")
+    return axis
+
+
+def plot_gerber_shiu_scatter(
+    result: GerberShiuResult,
+    *,
+    ax: Axes | None = None,
+    alpha: float = 0.7,
+) -> Axes:
+    """Plot surplus-before-ruin against deficit-at-ruin."""
+
+    if not isinstance(result, GerberShiuResult):
+        raise TypeError("result must be a GerberShiuResult")
+    axis = _axis(ax)
+    mask = (
+        result.ruined
+        & np.isfinite(result.surplus_before_ruin)
+        & np.isfinite(result.deficits_at_ruin)
+    )
+    if not np.any(mask):
+        axis.text(
+            0.5,
+            0.5,
+            "no ruin observed",
+            ha="center",
+            va="center",
+            transform=axis.transAxes,
+        )
+        axis.set_yticks([])
+    else:
+        colors = np.asarray(result.ruin_times, dtype=float)[mask]
+        scatter = axis.scatter(
+            result.surplus_before_ruin[mask],
+            result.deficits_at_ruin[mask],
+            c=colors,
+            cmap="viridis",
+            alpha=alpha,
+            edgecolors="none",
+        )
+        axis.figure.colorbar(scatter, ax=axis, label="ruin time")
+    axis.set_xlabel("surplus before ruin")
+    axis.set_ylabel("deficit at ruin")
+    axis.set_title("Gerber-Shiu ruin diagnostics")
     return axis
 
 

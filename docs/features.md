@@ -826,6 +826,75 @@ u = np.array([0.0, 1.0, 2.0, 4.0])
 print(ultimate_ruin_panjer(model, u, step=0.05, max_value=30.0))
 ```
 
+## Gerber-Shiu Diagnostics
+
+The Gerber-Shiu diagnostic layer estimates the finite-horizon discounted
+penalty
+
+```text
+E[exp(-delta tau) w(R_{tau-}, |R_tau|); tau <= horizon],
+```
+
+where `R_{tau-}` is the surplus immediately before ruin and `|R_tau|` is the
+deficit at ruin. This simulation layer follows the Gerber-Shiu definition from
+Asmussen and Albrecher, Chapter XII; matrix-valued closed-form solvers remain a
+separate planned analytical extension.
+
+Functions:
+
+- `estimate_gerber_shiu(model, horizon, n_simulations=10000, penalty=None,
+  discount_rate=0, ci_level=0.95, seed=None, max_events=1000000,
+  return_paths=False)`: simulate paths and estimate the discounted penalty.
+- `gerber_shiu_from_paths(paths, penalty=None, discount_rate=0, ci_level=0.95,
+  horizon=None)`: compute the same diagnostic from pre-simulated
+  `SimulationPath` objects.
+
+Arguments:
+
+- `model`: any `RiskProcess` accepted by `simulate_path`.
+- `horizon`: finite simulation horizon.
+- `penalty`: callable `penalty(surplus_before_ruin, deficit_at_ruin)`. If
+  omitted, `w == 1`; with `discount_rate=0`, the estimate is the finite-horizon
+  ruin probability.
+- `discount_rate`: non-negative `delta` in the Gerber-Shiu transform.
+- `ci_level`: normal confidence interval level for the sample mean of the
+  discounted penalty.
+- `return_paths`: return the simulated paths together with the result.
+
+Returned `GerberShiuResult` fields:
+
+- `estimate`, `standard_error`, `ci_low`, `ci_high`, `n_simulations`,
+  `horizon`, `discount_rate`.
+- `ruin_times`: finite ruin times and `inf` for non-ruined paths.
+- `surplus_before_ruin`, `deficits_at_ruin`, `claim_causing_ruin`: ruin-state
+  diagnostics, with `nan` for non-ruined paths.
+- `penalty_values`, `discounted_penalties`: raw and discounted simulated
+  penalty values.
+- Convenience properties: `ruined`, `ruin_probability`,
+  `mean_surplus_before_ruin`, `mean_deficit_at_ruin`.
+
+Minimal example:
+
+```python
+from ruin_theory import CramerLundbergProcess, deterministic, estimate_gerber_shiu
+
+model = CramerLundbergProcess(
+    initial_capital=1.0,
+    premium_rate=0.8,
+    claim_arrival_rate=1.2,
+    claim_distribution=deterministic(2.0),
+)
+result = estimate_gerber_shiu(
+    model,
+    horizon=5.0,
+    n_simulations=5000,
+    penalty=lambda surplus, deficit: deficit,
+    discount_rate=0.03,
+    seed=123,
+)
+print(result.estimate, result.mean_deficit_at_ruin)
+```
+
 ## Plotting
 
 Plotting functions accept an optional Matplotlib `Axes` and return the axis.
@@ -838,6 +907,12 @@ Available diagnostics:
   ci_high=None, band_alpha=0.18)`: probability curve with optional band.
 - `plot_ruin_time_histogram(estimate, ax=None, bins=30)`: conditional ruin-time
   histogram from a Monte Carlo estimate.
+- `plot_deficit_at_ruin(result, ax=None, bins=30)`: conditional deficit-at-ruin
+  histogram from a `GerberShiuResult`.
+- `plot_surplus_before_ruin(result, ax=None, bins=30)`: conditional
+  surplus-before-ruin histogram from a `GerberShiuResult`.
+- `plot_gerber_shiu_scatter(result, ax=None, alpha=0.7)`: surplus/deficit
+  scatter plot colored by ruin time.
 - `plot_terminal_reserve_distribution(terminal_reserves, ax=None, bins=30,
   quantiles=(0.05, 0.5, 0.95), show_zero=True)`: terminal reserve histogram
   with zero and quantile markers.
@@ -861,14 +936,18 @@ from ruin_theory import (
     INARByClaimModel,
     deterministic,
     exponential,
+    estimate_gerber_shiu,
     estimate_ruin_probability,
     optimize_periodic_prevention_calendar,
+    plot_deficit_at_ruin,
+    plot_gerber_shiu_scatter,
     plot_integer_byclaim_counts,
     plot_integer_byclaim_path,
     plot_periodic_pressure,
     plot_prevention_calendar,
     plot_ruin_curve,
     plot_terminal_reserve_distribution,
+    plot_surplus_before_ruin,
     simulate_inar_byclaim_path,
     simulate_terminal_reserves,
     ultimate_ruin_exponential,
@@ -910,6 +989,12 @@ byclaim_path = simulate_inar_byclaim_path(byclaim_model, periods=8, seed=123)
 fig, axes = plt.subplots(1, 2, figsize=(9, 3.5), constrained_layout=True)
 plot_integer_byclaim_path(byclaim_path, ax=axes[0])
 plot_integer_byclaim_counts(byclaim_path, ax=axes[1], kind="byclaim")
+
+gs = estimate_gerber_shiu(model, horizon=10.0, n_simulations=2000, seed=123)
+fig, axes = plt.subplots(1, 3, figsize=(12, 3.5), constrained_layout=True)
+plot_deficit_at_ruin(gs, ax=axes[0])
+plot_surplus_before_ruin(gs, ax=axes[1])
+plot_gerber_shiu_scatter(gs, ax=axes[2])
 plt.show()
 ```
 
@@ -931,6 +1016,8 @@ Implemented now:
 - Renewal and prevention-rich models in simulation.
 - By-claims with Poisson or geometric secondary counts.
 - Discrete-time INAR/BINAR by-claim simulation layers.
+- Gerber-Shiu discounted penalty simulation diagnostics with deficit-at-ruin and
+  surplus-before-ruin plots.
 - Equilibrium-tail helper and heavy-tail asymptotic path.
 - Diagnostics for trajectories, ruin curves, ruin times and terminal reserves.
 
@@ -938,6 +1025,6 @@ Planned extensions:
 
 - Matrix-exponential extensions beyond standard phase-type severities.
 - Phase-type renewal waits and matrix-valued finite-time ruin solvers.
-- Gerber-Shiu penalties with surplus-before-ruin and deficit-at-ruin records.
+- Matrix-valued/closed-form Gerber-Shiu solvers beyond simulation diagnostics.
 - Finite-horizon dynamic seasonal prevention beyond fixed annual calendars.
 - Two-claim-type prevention from Gauchon et al. (2021).

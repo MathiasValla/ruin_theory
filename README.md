@@ -27,6 +27,8 @@ published actuarial software examples used as numerical reference checks.
   acknowledgments.
 - [INAR/BINAR by-claim examples](examples/inar_binar_byclaim_examples.py):
   reproducible discrete by-claim simulations and plots.
+- [Gerber-Shiu diagnostics example](examples/gerber_shiu_diagnostics.py):
+  finite-horizon discounted penalties with deficit/surplus plots.
 
 ## Quick start
 
@@ -96,14 +98,16 @@ Cramer-Lundberg primary-claim models with linear severity scaling:
   optimization;
 - discrete-time INAR/BINAR by-claim simulation, ruin estimation and
   diagnostics;
+- Gerber-Shiu discounted penalty diagnostics with deficit-at-ruin and
+  surplus-before-ruin plots;
 - De Vylder three-moment approximation for supported severity families.
 
 Sparre-Andersen arrivals, by-claims, INAR/BINAR dependent by-claims, capital
 injections and nonlinear prevention are available in simulation.
-Markov-modulated methods and matrix-valued
-Gerber-Shiu quantities are planned extensions rather than completed APIs. The
-two-claim-type prevention model remains a planned extension beyond the current
-single-risk and periodic prevention optimizers.
+Markov-modulated methods and matrix-valued/closed-form Gerber-Shiu solvers are
+planned extensions beyond the current simulation diagnostics. The two-claim-type
+prevention model remains planned beyond the current single-risk and periodic
+prevention optimizers.
 
 ## Scientific references
 
