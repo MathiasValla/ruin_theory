@@ -43,6 +43,7 @@ from .formulas import (
 from .finite_discrete import (
     FiniteTimeDiscreteRuinResult,
     compound_poisson_lattice_pmf,
+    finite_time_discrete_computation_set,
     finite_time_ruin_discrete,
 )
 from .gerber_shiu import estimate_gerber_shiu, gerber_shiu_from_paths
@@ -97,6 +98,8 @@ from .plotting import (
     plot_integer_byclaim_counts,
     plot_integer_byclaim_path,
     plot_deficit_at_ruin,
+    plot_finite_time_discrete_computation_set,
+    plot_finite_time_discrete_survival,
     plot_gerber_shiu_scatter,
     plot_path,
     plot_paths,
@@ -156,6 +159,7 @@ __all__ = [
     "exponential",
     "finite_time_ruin_exponential",
     "finite_time_ruin_discrete",
+    "finite_time_discrete_computation_set",
     "gamma",
     "gerber_shiu_from_paths",
     "heavy_tail_integrated_tail_asymptotic",
@@ -183,6 +187,8 @@ __all__ = [
     "plot_integer_byclaim_counts",
     "plot_integer_byclaim_path",
     "plot_deficit_at_ruin",
+    "plot_finite_time_discrete_computation_set",
+    "plot_finite_time_discrete_survival",
     "plot_gerber_shiu_scatter",
     "plot_path",
     "plot_paths",

@@ -62,9 +62,18 @@ features in scientific work.
 - Ignatov, Z. G., Kaishev, V. K., and Krachunov, R. S. (2001). An improved
   finite-time ruin probability formula and its Mathematica implementation.
   *Insurance: Mathematics and Economics*, 29(3), 375-386.
+- Lefevre, C., and Loisel, S. (2009). Finite-time ruin probabilities for
+  discrete, possibly dependent, claim severities. *Methodology and Computing
+  in Applied Probability*, 11(3), 425-441.
 - Loisel, S. (2004). *Contribution a l'etude de processus univaries et
   multivaries de la theorie de la ruine*. PhD thesis, Universite Claude
   Bernard Lyon 1.
+- Rulliere, D., and Loisel, S. (2004). Another look at the Picard-Lefevre
+  formula for finite-time ruin probabilities. Preprint presented at the 7th
+  IME Conference, Lyon.
+- Castaner, A., Claramunt, M. M., Gathy, M., Lefevre, C., and Marmol, M.
+  (2010). Ruin problems for a discrete time risk model with non-homogeneous
+  conditions. Manuscript.
 - Panjer, H. H. (1981). Recursive evaluation of a family of compound
   distributions. *ASTIN Bulletin*, 12, 22-26.
 - Klugman, S. A., Panjer, H. H., and Willmot, G. E. (2012). *Loss Models: From

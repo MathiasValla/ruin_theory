@@ -18,7 +18,7 @@ FiniteTimeDiscreteMethod = Literal["seal", "takacs", "picard-lefevre", "inventor
 class FiniteTimeDiscreteRuinResult:
     """Exact finite-time ruin result for a lattice Cramer-Lundberg model."""
 
-    initial_capital: int
+    initial_capital: float
     horizon: float
     premium_rate: float
     claim_arrival_rate: float
@@ -32,6 +32,12 @@ class FiniteTimeDiscreteRuinResult:
     state_probabilities: np.ndarray
     convention: str
 
+    @property
+    def ruin_probabilities_by_time(self) -> np.ndarray:
+        """Ruin probabilities at the returned inventory dates."""
+
+        return 1.0 - self.survival_probabilities
+
 
 def _nonnegative_int(value: int, name: str) -> int:
     try:
@@ -44,14 +50,20 @@ def _nonnegative_int(value: int, name: str) -> int:
 
 
 def _finite_nonnegative(value: float, name: str) -> float:
-    result = float(value)
+    try:
+        result = float(value)
+    except (TypeError, ValueError) as exc:
+        raise TypeError(f"{name} must be numeric") from exc
     if not math.isfinite(result) or result < 0.0:
         raise ValueError(f"{name} must be finite and non-negative")
     return result
 
 
 def _finite_positive(value: float, name: str) -> float:
-    result = float(value)
+    try:
+        result = float(value)
+    except (TypeError, ValueError) as exc:
+        raise TypeError(f"{name} must be numeric") from exc
     if not math.isfinite(result) or result <= 0.0:
         raise ValueError(f"{name} must be finite and positive")
     return result
@@ -70,6 +82,8 @@ def _claim_pmf(values: ArrayLike) -> np.ndarray:
 
 
 def _method(value: str) -> str:
+    if not isinstance(value, str):
+        raise TypeError("method must be a string")
     method = value.lower().replace("_", "-")
     aliases = {
         "direct": "inventory",
@@ -89,6 +103,64 @@ def _floor_nonnegative(value: float) -> int:
     if math.isclose(value, nearest, rel_tol=1e-12, abs_tol=1e-12):
         return int(nearest)
     return int(math.floor(value))
+
+
+def _capital_parts(initial_capital: float) -> tuple[int, float]:
+    floor_value = _floor_nonnegative(initial_capital)
+    epsilon = initial_capital - floor_value
+    if math.isclose(epsilon, 1.0, rel_tol=0.0, abs_tol=1e-12):
+        floor_value += 1
+        epsilon = 0.0
+    if math.isclose(epsilon, 0.0, rel_tol=0.0, abs_tol=1e-12):
+        epsilon = 0.0
+    return floor_value, epsilon
+
+
+def finite_time_discrete_computation_set(
+    *,
+    initial_capital: float,
+    premium_units: float,
+    method: FiniteTimeDiscreteMethod = "seal",
+) -> np.ndarray:
+    """Return the ``(tau, j)`` lattice points used by a finite-time formula.
+
+    This diagnostic is useful for reproducing the computation-set figures in
+    Loisel's presentation of the Picard-Lefevre and Seal/Takacs formulas.
+    """
+
+    u = _finite_nonnegative(initial_capital, "initial_capital")
+    x = _finite_nonnegative(premium_units, "premium_units")
+    selected = _method(method)
+    u_floor, eps_u = _capital_parts(u)
+    x_floor, eps_x = _capital_parts(x)
+    nu = int(math.floor(eps_u + eps_x + 1e-12))
+    points: set[tuple[float, int]] = set()
+
+    if selected in {"seal", "takacs"}:
+        final_index = _floor_nonnegative(u + x)
+        points.update((x, index) for index in range(final_index + 1))
+        if selected == "takacs":
+            return np.asarray(sorted(points), dtype=float)
+        for k in range(1, x_floor + nu + 1):
+            points.add((k - eps_u, u_floor + k))
+            tail_time = x - k + eps_u
+            tail_index = x_floor - k + nu
+            points.update((tail_time, index) for index in range(tail_index + 1))
+    elif selected == "picard-lefevre":
+        for j in range(u_floor + 1):
+            points.add((j - u, j))
+            tail_time = x + u - j
+            tail_index = _floor_nonnegative(tail_time)
+            points.update((tail_time, index) for index in range(tail_index + 1))
+    else:
+        first_boundary = u_floor + 1
+        final_boundary = _floor_nonnegative(u + x) + 1
+        for boundary in range(first_boundary, final_boundary + 1):
+            inventory_time = x if boundary == final_boundary else boundary - u
+            points.update((inventory_time, index) for index in range(boundary))
+    if not points:
+        return np.empty((0, 2), dtype=float)
+    return np.asarray(sorted(points), dtype=float)
 
 
 def compound_poisson_lattice_pmf(
@@ -153,27 +225,31 @@ def _h_tilde(values: np.ndarray, premium_units: float, max_index: int) -> float:
 def _seal_survival(
     claim_pmf: np.ndarray,
     *,
-    initial_capital: int,
+    initial_capital: float,
     premium_rate: float,
     claim_arrival_rate: float,
     horizon: float,
 ) -> float:
     x = premium_rate * horizon
-    n = _floor_nonnegative(x)
-    final_index = initial_capital + n
+    u_floor, eps_u = _capital_parts(initial_capital)
+    x_floor, eps_x = _capital_parts(x)
+    nu = int(math.floor(eps_u + eps_x + 1e-12))
+    final_index = _floor_nonnegative(initial_capital + x)
     final = _h_values(claim_pmf, x, claim_arrival_rate, premium_rate, final_index)
     survival = math.fsum(final[: final_index + 1])
     correction = 0.0
-    for k in range(1, n + 1):
+    for k in range(1, x_floor + nu + 1):
         hit = _h_values(
             claim_pmf,
-            float(k),
+            k - eps_u,
             claim_arrival_rate,
             premium_rate,
-            initial_capital + k,
-        )[initial_capital + k]
-        tail = _h_values(claim_pmf, x - k, claim_arrival_rate, premium_rate, n - k)
-        correction += hit * _h_tilde(tail, x - k, n - k)
+            u_floor + k,
+        )[u_floor + k]
+        tail_time = x - k + eps_u
+        tail_index = x_floor - k + nu
+        tail = _h_values(claim_pmf, tail_time, claim_arrival_rate, premium_rate, tail_index)
+        correction += hit * _h_tilde(tail, tail_time, tail_index)
     return survival - correction
 
 
@@ -195,7 +271,7 @@ def _takacs_survival(
 def _picard_lefevre_survival(
     claim_pmf: np.ndarray,
     *,
-    initial_capital: int,
+    initial_capital: float,
     premium_rate: float,
     claim_arrival_rate: float,
     horizon: float,
@@ -203,13 +279,9 @@ def _picard_lefevre_survival(
     x = premium_rate * horizon
     if math.isclose(x, 0.0, abs_tol=1e-14):
         return 1.0
-    upper = _floor_nonnegative(initial_capital + x)
-    base = _h_values(claim_pmf, x, claim_arrival_rate, premium_rate, initial_capital)
-    survival = math.fsum(base[: initial_capital + 1])
-    if upper <= initial_capital:
-        return survival
-
-    for j in range(initial_capital + 1):
+    u_floor, _ = _capital_parts(initial_capital)
+    survival = 0.0
+    for j in range(u_floor + 1):
         formal = _h_values(
             claim_pmf,
             float(j - initial_capital),
@@ -217,26 +289,23 @@ def _picard_lefevre_survival(
             premium_rate,
             j,
         )[j]
-        tau = initial_capital + x - j
-        values = _h_values(claim_pmf, tau, claim_arrival_rate, premium_rate, upper - j)
-        inner = math.fsum(
-            values[i - j] * (initial_capital + x - i) / tau
-            for i in range(initial_capital + 1, upper + 1)
-        )
-        survival += formal * inner
+        tail_time = x + initial_capital - j
+        tail_index = _floor_nonnegative(tail_time)
+        values = _h_values(claim_pmf, tail_time, claim_arrival_rate, premium_rate, tail_index)
+        survival += formal * _h_tilde(values, tail_time, tail_index)
     return survival
 
 
 def _inventory_result(
     claim_pmf: np.ndarray,
     *,
-    initial_capital: int,
+    initial_capital: float,
     premium_rate: float,
     claim_arrival_rate: float,
     horizon: float,
 ) -> tuple[float, np.ndarray, np.ndarray, np.ndarray]:
     final_boundary = _floor_nonnegative(initial_capital + premium_rate * horizon) + 1
-    first_boundary = initial_capital + 1
+    first_boundary = _floor_nonnegative(initial_capital) + 1
     state = np.zeros(final_boundary, dtype=float)
     state[0] = 1.0
     previous_time = 0.0
@@ -271,7 +340,7 @@ def _inventory_result(
 def finite_time_ruin_discrete(
     claim_pmf: ArrayLike,
     *,
-    initial_capital: int,
+    initial_capital: float,
     premium_rate: float,
     claim_arrival_rate: float,
     horizon: float,
@@ -281,12 +350,11 @@ def finite_time_ruin_discrete(
     """Exact finite-time ruin probability for integer-valued claim sizes.
 
     The model is ``R_t = u + c t - S_t`` with a homogeneous compound Poisson
-    aggregate claim process and integer claim sizes. The initial capital must
-    be an integer measured on the same lattice as ``claim_pmf``.
+    aggregate claim process and integer claim sizes.
     """
 
     pmf = _claim_pmf(claim_pmf)
-    u = _nonnegative_int(initial_capital, "initial_capital")
+    u = _finite_nonnegative(initial_capital, "initial_capital")
     c = _finite_positive(premium_rate, "premium_rate")
     lam = _finite_nonnegative(claim_arrival_rate, "claim_arrival_rate")
     time = _finite_nonnegative(horizon, "horizon")
@@ -307,7 +375,7 @@ def finite_time_ruin_discrete(
             horizon=time,
         )
     elif selected == "takacs":
-        if u != 0:
+        if not math.isclose(u, 0.0, rel_tol=0.0, abs_tol=1e-12):
             raise ValueError("method='takacs' is the zero-initial-capital Takacs formula")
         survival = _takacs_survival(
             pmf,

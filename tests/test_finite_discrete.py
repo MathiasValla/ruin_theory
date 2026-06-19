@@ -59,6 +59,32 @@ def test_picard_lefevre_seal_and_inventory_methods_agree():
     assert picard_lefevre == pytest.approx(inventory.ruin_probability, abs=2e-13)
 
 
+def test_formulas_support_non_integer_initial_capital():
+    # With u=0.5, c=1, lambda=1 and unit claims, survival to t=1 requires
+    # N(0.5)=0 and at most one claim by t=1: exp(-1) * (1 + 0.5).
+    expected_survival = 1.5 * math.exp(-1.0)
+    kwargs = dict(
+        claim_pmf=[0.0, 1.0],
+        initial_capital=0.5,
+        premium_rate=1.0,
+        claim_arrival_rate=1.0,
+        horizon=1.0,
+    )
+
+    seal = finite_time_ruin_discrete(**kwargs, method="seal")
+    picard_lefevre = finite_time_ruin_discrete(**kwargs, method="picard-lefevre")
+    inventory = finite_time_ruin_discrete(**kwargs, method="inventory", return_result=True)
+
+    assert inventory.initial_capital == pytest.approx(0.5)
+    assert inventory.survival_probability == pytest.approx(expected_survival)
+    np.testing.assert_allclose(
+        inventory.ruin_probabilities_by_time,
+        1.0 - inventory.survival_probabilities,
+    )
+    assert seal == pytest.approx(1.0 - expected_survival)
+    assert picard_lefevre == pytest.approx(1.0 - expected_survival)
+
+
 def test_inventory_formula_matches_hand_check_for_size_two_claims():
     # With u=1, c=1 and deterministic claims of size 2, survival to t=2
     # requires no claim before time 1 and no second claim before time 2.
@@ -96,7 +122,7 @@ def test_finite_discrete_formulas_validate_inputs():
     with pytest.raises(TypeError, match="initial_capital"):
         finite_time_ruin_discrete(
             [0.0, 1.0],
-            initial_capital=1.5,
+            initial_capital="bad",
             premium_rate=1.0,
             claim_arrival_rate=1.0,
             horizon=1.0,
@@ -127,4 +153,3 @@ def test_finite_discrete_formulas_validate_inputs():
             horizon=1.0,
             method="takacs",
         )
-

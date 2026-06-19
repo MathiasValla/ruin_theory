@@ -85,7 +85,7 @@ Cramer-Lundberg primary-claim models with linear severity scaling:
 - ultimate ruin for exponential and hyperexponential severities;
 - ultimate ruin for phase-type severities in the Cramer-Lundberg model;
 - finite-time ruin for exponential severities;
-- exact finite-time ruin for integer-valued claim sizes by stable
+- exact finite-time ruin for integer-valued claim sizes and real reserves by stable
   Seal/Takacs formulas, Picard-Lefevre's formula and inventory recursions;
 - Lundberg adjustment coefficients, bounds and light-tail asymptotics;
 - Pollaczek-Khinchine Monte Carlo via equilibrium claim sampling;
@@ -109,7 +109,11 @@ injections and nonlinear prevention are available in simulation.
 Markov-modulated methods and matrix-valued/closed-form Gerber-Shiu solvers are
 planned extensions beyond the current simulation diagnostics. The two-claim-type
 prevention model remains planned beyond the current single-risk and periodic
-prevention optimizers.
+prevention optimizers. Finite-time non-homogeneous premium/arrival models,
+dependent-claim finite-horizon formulas and discrete-time non-homogeneous
+ruin models with interest are planned beyond the current homogeneous lattice
+finite-time formulas; the detailed finite-time implementation roadmap is in
+`docs/features.md`.
 
 ## Scientific references
 
@@ -117,6 +121,10 @@ Core references include Lundberg (1903, 1926), Cramer (1930, 1955), Sparre
 Andersen (1957), Gerber (1979), Rolski et al. (1999), and Asmussen and
 Albrecher (2010). Numerical validation examples and software comparisons cite
 Dutang, Goulet and Pigeon (2008) and Goulet's `actuar` ruin-theory notes.
+Finite-time discrete formulas follow Picard and Lefevre (1997, 1998),
+Rulliere and Loisel (2004), Seal (1969), Takacs (1962), De Vylder (1999),
+Ignatov, Kaishev and Krachunov (2001), and the finite-horizon reviews and
+extensions by Lefevre and Loisel.
 Prevention features are guided by Ehrlich and Becker (1972), Gauchon et al.
 (2020, 2021), Schmidli (2008), and the seasonal-prevention manuscript by
 Minier, Valla and Lefevre, with heavy-tail periodic prevention following the

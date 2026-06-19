@@ -9,6 +9,11 @@ from matplotlib import pyplot as plt
 from matplotlib.axes import Axes
 from numpy.typing import ArrayLike
 
+from .finite_discrete import (
+    FiniteTimeDiscreteMethod,
+    FiniteTimeDiscreteRuinResult,
+    finite_time_discrete_computation_set,
+)
 from .integer_byclaims import IntegerByClaimPath
 from .prevention import PeriodicPreventionResult
 from .results import GerberShiuResult, RuinEstimate, SimulationPath
@@ -227,6 +232,64 @@ def plot_ruin_time_histogram(
     axis.set_xlabel("time to ruin")
     axis.set_ylabel("frequency")
     axis.set_title("Conditional time to ruin")
+    return axis
+
+
+def plot_finite_time_discrete_survival(
+    result: FiniteTimeDiscreteRuinResult,
+    *,
+    ax: Axes | None = None,
+    label: str | None = None,
+) -> Axes:
+    """Plot exact survival probabilities at finite-time inventory dates."""
+
+    if not isinstance(result, FiniteTimeDiscreteRuinResult):
+        raise TypeError("result must be a FiniteTimeDiscreteRuinResult")
+    if result.inventory_times.size == 0 or result.survival_probabilities.size == 0:
+        raise ValueError("result does not contain inventory recursion diagnostics")
+    if result.inventory_times.shape != result.survival_probabilities.shape:
+        raise ValueError("inventory_times and survival_probabilities must match")
+
+    axis = _axis(ax)
+    axis.step(
+        result.inventory_times,
+        result.survival_probabilities,
+        where="post",
+        color="#0b6e4f",
+        linewidth=2.0,
+        label=label,
+    )
+    axis.scatter(result.inventory_times, result.survival_probabilities, color="#0b6e4f", s=28)
+    axis.set_xlabel("time")
+    axis.set_ylabel("non-ruin probability")
+    axis.set_ylim(0.0, 1.0)
+    axis.set_title("Finite-time lattice survival")
+    if label:
+        axis.legend()
+    return axis
+
+
+def plot_finite_time_discrete_computation_set(
+    *,
+    initial_capital: float,
+    premium_units: float,
+    method: FiniteTimeDiscreteMethod = "seal",
+    ax: Axes | None = None,
+) -> Axes:
+    """Plot Picard-Lefevre or Seal/Takacs computation-set lattice points."""
+
+    points = finite_time_discrete_computation_set(
+        initial_capital=initial_capital,
+        premium_units=premium_units,
+        method=method,
+    )
+    axis = _axis(ax)
+    if points.size:
+        axis.scatter(points[:, 0], points[:, 1], s=18, color="#4c78a8", alpha=0.82)
+    axis.axvline(0.0, color="#222222", linewidth=0.8, linestyle=":")
+    axis.set_xlabel("premium units")
+    axis.set_ylabel("aggregate claim index")
+    axis.set_title(f"{method.replace('-', ' ').title()} computation set")
     return axis
 
 

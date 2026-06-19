@@ -14,6 +14,8 @@ from ruin_theory.plotting import (
     plot_integer_byclaim_counts,
     plot_integer_byclaim_path,
     plot_deficit_at_ruin,
+    plot_finite_time_discrete_computation_set,
+    plot_finite_time_discrete_survival,
     plot_gerber_shiu_scatter,
     plot_path,
     plot_paths,
@@ -28,6 +30,7 @@ from ruin_theory import (
     BINARByClaimModel,
     INARByClaimModel,
     deterministic,
+    finite_time_ruin_discrete,
     gerber_shiu_from_paths,
     simulate_binar_byclaim_path,
     simulate_inar_byclaim_path,
@@ -187,6 +190,50 @@ def test_plot_ruin_time_histogram_handles_ruined_and_unruined_samples():
         assert len(ax.patches) > 0
     finally:
         plt.close(fig)
+
+
+def test_plot_finite_time_discrete_diagnostics():
+    result = finite_time_ruin_discrete(
+        [0.0, 1.0],
+        initial_capital=0.5,
+        premium_rate=1.0,
+        claim_arrival_rate=1.0,
+        horizon=1.0,
+        method="inventory",
+        return_result=True,
+    )
+
+    fig, axes = plt.subplots(1, 2)
+    try:
+        survival_axis = plot_finite_time_discrete_survival(result, ax=axes[0], label="survival")
+        set_axis = plot_finite_time_discrete_computation_set(
+            initial_capital=5,
+            premium_units=10,
+            method="picard-lefevre",
+            ax=axes[1],
+        )
+
+        assert survival_axis.get_ylabel() == "non-ruin probability"
+        assert survival_axis.get_legend() is not None
+        assert len(survival_axis.lines) == 1
+        assert set_axis.get_xlabel() == "premium units"
+        assert set_axis.get_ylabel() == "aggregate claim index"
+        assert len(set_axis.collections) == 1
+    finally:
+        plt.close(fig)
+
+    with pytest.raises(ValueError, match="inventory recursion"):
+        plot_finite_time_discrete_survival(
+            finite_time_ruin_discrete(
+                [0.0, 1.0],
+                initial_capital=0,
+                premium_rate=1.0,
+                claim_arrival_rate=1.0,
+                horizon=1.0,
+                method="seal",
+                return_result=True,
+            )
+        )
 
 
 def test_plot_gerber_shiu_diagnostics():

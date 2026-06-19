@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import numpy as np
 
-from ruin_theory import finite_time_ruin_discrete, plot_ruin_curve
+from ruin_theory import (
+    finite_time_ruin_discrete,
+    plot_finite_time_discrete_computation_set,
+    plot_finite_time_discrete_survival,
+    plot_ruin_curve,
+)
 
 
 def main() -> None:
@@ -39,16 +44,41 @@ def main() -> None:
     print("\nInventory dates:", np.round(result.inventory_times, 4))
     print("Survival at inventory dates:", np.round(result.survival_probabilities, 6))
 
+    non_integer = finite_time_ruin_discrete(
+        deterministic_unit_claim,
+        initial_capital=0.5,
+        premium_rate=1.0,
+        claim_arrival_rate=1.0,
+        horizon=1.0,
+        method="seal",
+    )
+    print(f"Non-integer reserve check psi(0.5, 1)={non_integer:.12g}")
+
     try:
         from matplotlib import pyplot as plt
     except ImportError:
         return
-    _, ax = plt.subplots(figsize=(6, 3.5), constrained_layout=True)
-    plot_ruin_curve(reserves, ruin, ax=ax, label="Seal/Takacs")
-    ax.set_title("Exact finite-time lattice ruin")
-    plt.show()
+    fig, axes = plt.subplots(2, 2, figsize=(10, 7), constrained_layout=True)
+    plot_ruin_curve(reserves, ruin, ax=axes[0, 0], label="Seal/Takacs")
+    axes[0, 0].set_title("Exact finite-time lattice ruin")
+    plot_finite_time_discrete_survival(result, ax=axes[0, 1], label="inventory")
+    plot_finite_time_discrete_computation_set(
+        initial_capital=5,
+        premium_units=10,
+        method="picard-lefevre",
+        ax=axes[1, 0],
+    )
+    plot_finite_time_discrete_computation_set(
+        initial_capital=5,
+        premium_units=10,
+        method="seal",
+        ax=axes[1, 1],
+    )
+    if plt.get_backend().lower() == "agg":
+        plt.close(fig)
+    else:
+        plt.show()
 
 
 if __name__ == "__main__":
     main()
-

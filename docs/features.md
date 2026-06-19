@@ -754,10 +754,15 @@ Available functions:
 - `finite_time_ruin_discrete(claim_pmf, initial_capital, premium_rate,
   claim_arrival_rate, horizon, method="seal")`: exact finite-time ruin
   probability for integer-valued claim sizes in the Cramer-Lundberg model.
+  `initial_capital` may be any non-negative real value measured on the same
+  unit lattice as the integer claims.
   Available methods are `"seal"` for the stable probability-only
   Seal/Takacs formula, `"takacs"` for the zero-initial-capital Takacs formula,
   `"picard-lefevre"` for the original Picard-Lefevre pseudo-probability
   formula, and `"inventory"` for the direct inventory-date recursion.
+- `finite_time_discrete_computation_set(initial_capital, premium_units,
+  method="seal")`: returns the `(tau, j)` points used by the selected formula,
+  for reproducing Picard-Lefevre vs Seal/Takacs computation-set figures.
 - `compound_poisson_lattice_pmf(claim_pmf, mean, max_aggregate)`: exact
   compound-Poisson lattice masses `P(S=j)` for `j <= max_aggregate`; the
   unreturned tail is intentionally truncated.
@@ -954,6 +959,12 @@ Available diagnostics:
   surplus-before-ruin histogram from a `GerberShiuResult`.
 - `plot_gerber_shiu_scatter(result, ax=None, alpha=0.7)`: surplus/deficit
   scatter plot colored by ruin time.
+- `plot_finite_time_discrete_survival(result, ax=None, label=None)`: exact
+  survival curve at inventory dates from a `FiniteTimeDiscreteRuinResult`
+  produced with `method="inventory"`.
+- `plot_finite_time_discrete_computation_set(initial_capital, premium_units,
+  method="seal", ax=None)`: computation-set scatter plot for Picard-Lefevre,
+  Seal/Takacs or inventory formulas.
 - `plot_terminal_reserve_distribution(terminal_reserves, ax=None, bins=30,
   quantiles=(0.05, 0.5, 0.95), show_zero=True)`: terminal reserve histogram
   with zero and quantile markers.
@@ -1069,5 +1080,33 @@ Planned extensions:
 - Matrix-exponential extensions beyond standard phase-type severities.
 - Phase-type renewal waits and matrix-valued finite-time ruin solvers.
 - Matrix-valued/closed-form Gerber-Shiu solvers beyond simulation diagnostics.
+- Finite-time exact discrete extensions from Picard-Lefevre,
+  Rulliere-Loisel, Lefevre-Loisel and Castaner et al.:
+  - General boundary and non-constant premium functions `h(t)`, with
+    strict/non-strict ruin conventions, inverse boundary dates `v_n`, and
+    exact survival/ruin recursions by aggregate level and by inventory date.
+  - Generalized Appell and Sheffer coefficient engines for arbitrary
+    increasing boundaries, including base polynomials, coefficient triangular
+    systems and Picard-Lefevre polynomial diagnostics.
+  - Non-homogeneous compound-Poisson arrivals with time-varying intensity
+    `lambda(t)` and time-varying severity laws, including aggregate-increment
+    probabilities, exact finite-horizon recursions and computation-set plots.
+  - Dependent and exchangeable claim-severity finite-horizon formulas based on
+    joint partial sums and order-statistic tail probabilities, plus
+    comonotonic/common-factor dependence examples and sensitivity plots.
+  - Discrete-time non-homogeneous risk models with interest, inflation,
+    beginning/end/mid-period premium timing, lower/upper discretization bounds,
+    finite-time ruin probabilities and conditional surplus/deficit
+    distributions at ruin.
+  - Ruin-severity distribution `chi(t, x)`, conditional surplus given
+    non-ruin, conditional deficit given ruin, quantile tables and the figures
+    reported by Castaner et al.
+  - Non-homogeneous Lundberg-type bounds, periodwise adjustment roots and the
+    explicit compound-Poisson/exponential and normal-approximation premium
+    principle formulas.
+  - Reproduction examples for Rulliere-Loisel computation-set figures and
+    tables, Picard-Lefevre polynomial identities, Lefevre-Loisel dependence
+    examples and Castaner et al. discretization, severity, quantile and
+    Lundberg-bound tables.
 - Finite-horizon dynamic seasonal prevention beyond fixed annual calendars.
 - Two-claim-type prevention from Gauchon et al. (2021).
