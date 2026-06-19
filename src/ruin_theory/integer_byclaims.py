@@ -87,6 +87,7 @@ class IntegerByClaimPath:
     ruin_time: int | None
     initial_capital: float
     premium_per_period: float
+    ruin_threshold: float = 0.0
 
     @property
     def ruined(self) -> bool:
@@ -171,10 +172,12 @@ class INARByClaimModel:
     def expected_terminal_reserve(self, periods: int) -> float:
         period_count = _positive_int(periods, "periods")
         primary_cost = period_count * self.primary_count_mean * self.primary_distribution.mean()
-        byclaim_cost = (
-            self.expected_byclaim_counts(period_count).sum()
-            * self.byclaim_distribution.mean()
-        )
+        previous = self.reproduction * self.initial_byclaim_mean + self.primary_count_mean
+        byclaim_count_sum = 0.0
+        for _ in range(period_count):
+            byclaim_count_sum += previous
+            previous = self.reproduction * previous + self.primary_count_mean
+        byclaim_cost = byclaim_count_sum * self.byclaim_distribution.mean()
         return float(
             self.initial_capital
             + period_count * self.premium_per_period
@@ -185,7 +188,7 @@ class INARByClaimModel:
 
 @dataclass(frozen=True)
 class BINARByClaimModel:
-    """Bivariate INAR(1) by-claim reserve model."""
+    """Bivariate BINAR(1) by-claim reserve model."""
 
     initial_capital: float
     premium_per_period: float
@@ -261,9 +264,12 @@ class BINARByClaimModel:
             [distribution.mean() for distribution in self.byclaim_distributions],
         )
         primary_cost = period_count * float(np.dot(primary_means, primary_severities))
-        byclaim_cost = float(
-            (self.expected_byclaim_counts(period_count) @ byclaim_severities).sum(),
-        )
+        matrix = self.reproduction_array()
+        previous = matrix @ np.asarray(self.initial_byclaim_means, dtype=float) + primary_means
+        byclaim_cost = 0.0
+        for _ in range(period_count):
+            byclaim_cost += float(previous @ byclaim_severities)
+            previous = matrix @ previous + primary_means
         return float(
             self.initial_capital
             + period_count * self.premium_per_period
@@ -280,13 +286,14 @@ def _compound_sums(
     integer_counts = np.asarray(counts, dtype=int)
     if np.any(integer_counts < 0):
         raise ValueError("counts must be non-negative")
+    if distribution.name == "deterministic":
+        return integer_counts.astype(float) * float(distribution.metadata["value"])
+
     result = np.zeros(integer_counts.size, dtype=float)
     positive = integer_counts > 0
     if not np.any(positive):
         return result
 
-    if distribution.name == "deterministic":
-        return integer_counts.astype(float) * float(distribution.metadata["value"])
     if distribution.name == "exponential":
         rate = float(distribution.metadata["rate"])
         result[positive] = rng.gamma(shape=integer_counts[positive], scale=1.0 / rate)
@@ -317,7 +324,7 @@ def _sample_initial_counts(
         primary = rng.poisson(model.primary_count_mean, size=(n_paths, 1))
         ancestors = rng.poisson(model.initial_byclaim_mean, size=n_paths)
         byclaims = rng.binomial(ancestors, model.reproduction).reshape(n_paths, 1) + primary
-        return primary.astype(int), byclaims.astype(int)
+        return primary.astype(int, copy=False), byclaims.astype(int, copy=False)
 
     primary_means = np.asarray(model.primary_count_means, dtype=float)
     primary = rng.poisson(primary_means, size=(n_paths, 2))
@@ -328,7 +335,7 @@ def _sample_initial_counts(
         byclaims[:, target] = primary[:, target]
         for source in range(2):
             byclaims[:, target] += rng.binomial(ancestors[:, source], matrix[target, source])
-    return primary.astype(int), byclaims
+    return primary.astype(int, copy=False), byclaims.astype(int, copy=False)
 
 
 def _sample_next_counts(
@@ -343,7 +350,7 @@ def _sample_next_counts(
             rng.binomial(previous_byclaims[:, 0], model.reproduction).reshape(n_paths, 1)
             + primary
         )
-        return primary.astype(int), byclaims.astype(int)
+        return primary.astype(int, copy=False), byclaims.astype(int, copy=False)
 
     primary_means = np.asarray(model.primary_count_means, dtype=float)
     primary = rng.poisson(primary_means, size=(n_paths, 2))
@@ -356,7 +363,7 @@ def _sample_next_counts(
                 previous_byclaims[:, source],
                 matrix[target, source],
             )
-    return primary.astype(int), byclaims
+    return primary.astype(int, copy=False), byclaims.astype(int, copy=False)
 
 
 def _losses_by_type(
@@ -370,8 +377,23 @@ def _losses_by_type(
     return losses
 
 
+def _total_losses_by_type(
+    distributions: tuple[ClaimDistribution, ...],
+    counts: np.ndarray,
+    rng: np.random.Generator,
+) -> np.ndarray:
+    total = np.zeros(counts.shape[0], dtype=float)
+    for index, distribution in enumerate(distributions):
+        total += _compound_sums(distribution, counts[:, index], rng)
+    return total
+
+
 def _ruined(values: np.ndarray, threshold: float, inclusive: bool) -> np.ndarray:
     return values <= threshold if inclusive else values < threshold
+
+
+def _ruined_scalar(value: float, threshold: float, inclusive: bool) -> bool:
+    return value <= threshold if inclusive else value < threshold
 
 
 def simulate_integer_byclaim_path(
@@ -416,7 +438,7 @@ def simulate_integer_byclaim_path(
         primary_losses.append(primary_loss[0].copy())
         byclaim_losses.append(byclaim_loss[0].copy())
         reserves.append(float(reserve))
-        if ruin_time is None and _ruined(np.array([reserve]), threshold, ruin_inclusive)[0]:
+        if ruin_time is None and _ruined_scalar(reserve, threshold, ruin_inclusive):
             ruin_time = period + 1
             if stop_at_ruin:
                 break
@@ -430,6 +452,7 @@ def simulate_integer_byclaim_path(
         ruin_time=ruin_time,
         initial_capital=float(model.initial_capital),
         premium_per_period=float(model.premium_per_period),
+        ruin_threshold=threshold,
     )
 
 
@@ -465,7 +488,7 @@ def simulate_binar_byclaim_path(
     ruin_threshold: float = 0.0,
     ruin_inclusive: bool = True,
 ) -> IntegerByClaimPath:
-    """Simulate one bivariate INAR by-claim reserve trajectory."""
+    """Simulate one bivariate BINAR by-claim reserve trajectory."""
 
     if not isinstance(model, BINARByClaimModel):
         raise TypeError("model must be a BINARByClaimModel")
@@ -500,13 +523,9 @@ def simulate_integer_byclaim_terminal_reserves(
             assert previous_byclaims is not None
             primary, byclaims = _sample_next_counts(model, previous_byclaims, rng)
         previous_byclaims = byclaims
-        primary_losses = _losses_by_type(model.primary_distributions, primary, rng)
-        byclaim_losses = _losses_by_type(model.byclaim_distributions, byclaims, rng)
-        reserves += (
-            model.premium_per_period
-            - primary_losses.sum(axis=1)
-            - byclaim_losses.sum(axis=1)
-        )
+        reserves += model.premium_per_period
+        reserves -= _total_losses_by_type(model.primary_distributions, primary, rng)
+        reserves -= _total_losses_by_type(model.byclaim_distributions, byclaims, rng)
     return reserves
 
 
@@ -585,13 +604,9 @@ def estimate_integer_byclaim_ruin_probability(
             assert previous_byclaims is not None
             primary, byclaims = _sample_next_counts(model, previous_byclaims, rng)
         previous_byclaims = byclaims
-        primary_losses = _losses_by_type(model.primary_distributions, primary, rng)
-        byclaim_losses = _losses_by_type(model.byclaim_distributions, byclaims, rng)
-        reserves += (
-            model.premium_per_period
-            - primary_losses.sum(axis=1)
-            - byclaim_losses.sum(axis=1)
-        )
+        reserves += model.premium_per_period
+        reserves -= _total_losses_by_type(model.primary_distributions, primary, rng)
+        reserves -= _total_losses_by_type(model.byclaim_distributions, byclaims, rng)
         newly_ruined = ~ruined & _ruined(reserves, threshold, ruin_inclusive)
         ruin_times[newly_ruined] = period + 1
         ruined |= newly_ruined

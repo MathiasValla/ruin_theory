@@ -9,10 +9,13 @@ from ruin_theory import (
     RuinEstimate,
     deterministic,
     estimate_binar_byclaim_ruin_probability,
+    estimate_integer_byclaim_ruin_probability,
     estimate_inar_byclaim_ruin_probability,
     exponential,
     simulate_binar_byclaim_path,
     simulate_binar_byclaim_terminal_reserves,
+    simulate_integer_byclaim_path,
+    simulate_integer_byclaim_terminal_reserves,
     simulate_inar_byclaim_path,
     simulate_inar_byclaim_terminal_reserves,
 )
@@ -162,6 +165,57 @@ def test_integer_byclaim_ruin_estimators_return_ruin_estimates():
     assert inar_estimate.probability > 0.99
     assert binar_estimate.probability > 0.99
     assert np.all(np.isfinite(inar_estimate.ruin_times[inar_estimate.ruin_times < np.inf]))
+
+
+def test_generic_integer_byclaim_api_and_ruin_boundary_options():
+    model = INARByClaimModel(
+        initial_capital=0.0,
+        premium_per_period=0.0,
+        primary_count_mean=0.0,
+        initial_byclaim_mean=0.0,
+        reproduction=0.0,
+        primary_distribution=deterministic(1.0),
+        byclaim_distribution=deterministic(1.0),
+    )
+
+    path = simulate_integer_byclaim_path(
+        model,
+        periods=3,
+        seed=123,
+        ruin_threshold=0.0,
+        ruin_inclusive=False,
+    )
+    reserves = simulate_integer_byclaim_terminal_reserves(
+        model,
+        periods=3,
+        n_simulations=8,
+        seed=123,
+    )
+    strict = estimate_integer_byclaim_ruin_probability(
+        model,
+        periods=3,
+        n_simulations=8,
+        ci_method="normal",
+        seed=123,
+        ruin_inclusive=False,
+    )
+    inclusive = estimate_integer_byclaim_ruin_probability(
+        model,
+        periods=3,
+        n_simulations=8,
+        ci_method="normal",
+        seed=123,
+        ruin_inclusive=True,
+    )
+
+    assert path.ruin_time is None
+    assert path.ruin_threshold == 0.0
+    np.testing.assert_allclose(path.reserves, np.zeros(4))
+    np.testing.assert_allclose(reserves, np.zeros(8))
+    assert strict.ci_method == "normal"
+    assert strict.probability == 0.0
+    assert inclusive.probability == 1.0
+    np.testing.assert_allclose(inclusive.ruin_times, np.ones(8))
 
 
 def test_integer_byclaim_validation_rejects_bad_parameters():

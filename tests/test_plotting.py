@@ -21,7 +21,13 @@ from ruin_theory.plotting import (
     plot_ruin_time_histogram,
     plot_terminal_reserve_distribution,
 )
-from ruin_theory import INARByClaimModel, deterministic, simulate_inar_byclaim_path
+from ruin_theory import (
+    BINARByClaimModel,
+    INARByClaimModel,
+    deterministic,
+    simulate_binar_byclaim_path,
+    simulate_inar_byclaim_path,
+)
 from ruin_theory.prevention import optimize_periodic_prevention_calendar
 from ruin_theory.results import RuinEstimate, SimulationPath
 
@@ -227,7 +233,13 @@ def test_plot_integer_byclaim_path_and_counts():
         primary_distribution=deterministic(1.0),
         byclaim_distribution=deterministic(1.0),
     )
-    path = simulate_inar_byclaim_path(model, periods=4, seed=123, stop_at_ruin=False)
+    path = simulate_inar_byclaim_path(
+        model,
+        periods=4,
+        seed=123,
+        stop_at_ruin=False,
+        ruin_threshold=1.5,
+    )
 
     fig, axes = plt.subplots(1, 2)
     try:
@@ -236,9 +248,29 @@ def test_plot_integer_byclaim_path_and_counts():
 
         assert reserve_axis.get_xlabel() == "period"
         assert reserve_axis.get_title() == "Discrete by-claim reserve path"
+        np.testing.assert_allclose(reserve_axis.lines[1].get_ydata(), [1.5, 1.5])
         assert count_axis.get_ylabel() == "count"
         assert count_axis.get_title() == "By-claim counts"
         assert len(count_axis.patches) == 4
+    finally:
+        plt.close(fig)
+
+    binar = BINARByClaimModel(
+        initial_capital=20.0,
+        premium_per_period=5.0,
+        primary_count_means=(1.0, 2.0),
+        initial_byclaim_means=(1.0, 1.0),
+        reproduction_matrix=((0.2, 0.1), (0.1, 0.2)),
+        primary_distributions=(deterministic(1.0), deterministic(1.0)),
+        byclaim_distributions=(deterministic(1.0), deterministic(1.0)),
+    )
+    binar_path = simulate_binar_byclaim_path(binar, periods=3, seed=123, stop_at_ruin=False)
+    fig, ax = plt.subplots()
+    try:
+        primary_axis = plot_integer_byclaim_counts(binar_path, ax=ax, kind="primary")
+        assert primary_axis.get_title() == "Primary counts"
+        assert primary_axis.get_legend() is not None
+        assert len(primary_axis.patches) == 6
     finally:
         plt.close(fig)
 

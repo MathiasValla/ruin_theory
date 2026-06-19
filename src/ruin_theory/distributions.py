@@ -490,6 +490,32 @@ def pareto(shape: float, scale: float) -> ClaimDistribution:
     )
 
 
+def lomax(shape: float, scale: float) -> ClaimDistribution:
+    """Lomax severity with survival ``(1 + x / scale)**(-shape)``."""
+
+    shape = _positive_float(shape, "shape")
+    scale = _positive_float(scale, "scale")
+    frozen = stats.lomax(c=shape, scale=scale)
+    mean_value = np.inf if shape <= 1 else scale / (shape - 1)
+    variance = None if shape <= 2 else shape * scale**2 / ((shape - 1) ** 2 * (shape - 2))
+
+    def sampler(rng: np.random.Generator, n: int) -> np.ndarray:
+        return scale * rng.pareto(shape, size=n)
+
+    return ClaimDistribution(
+        name="lomax",
+        mean_value=float(mean_value),
+        variance_value=None if variance is None else float(variance),
+        sampler=sampler,
+        cdf_function=lambda x: frozen.cdf(_as_array(x)),
+        survival_function=lambda x: frozen.sf(_as_array(x)),
+        pdf_function=lambda x: frozen.pdf(_as_array(x)),
+        mgf_function=None,
+        laplace_function=None,
+        metadata={"shape": float(shape), "scale": float(scale)},
+    )
+
+
 def lognormal(meanlog: float, sdlog: float) -> ClaimDistribution:
     """Lognormal severity parameterized as in R by meanlog and sdlog."""
 

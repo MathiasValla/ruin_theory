@@ -25,6 +25,8 @@ published actuarial software examples used as numerical reference checks.
   reproductions of the ruin-theory examples in `R_actuar_package.pdf`.
 - [Scientific references](docs/references.md): full citations and
   acknowledgments.
+- [INAR/BINAR by-claim examples](examples/inar_binar_byclaim_examples.py):
+  reproducible discrete by-claim simulations and plots.
 
 ## Quick start
 

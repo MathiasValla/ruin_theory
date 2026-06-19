@@ -326,7 +326,7 @@ def plot_integer_byclaim_path(
     axis = _axis(ax)
     periods = np.arange(path.reserves.size)
     axis.step(periods, path.reserves, where="post", color="#1f77b4", linewidth=1.8)
-    axis.axhline(0.0, color="#222222", linewidth=1.0, linestyle="--")
+    axis.axhline(path.ruin_threshold, color="#222222", linewidth=1.0, linestyle="--")
     if show_ruin and path.ruin_time is not None:
         axis.axvline(path.ruin_time, color="#b00020", linewidth=1.2, linestyle=":")
     axis.set_xlabel("period")

@@ -20,6 +20,8 @@ Available factories:
 - `phase_type(initial_probabilities, subgenerator)`: continuous phase-type law
   `PH(alpha, T)`, where `subgenerator` is the transient generator matrix.
 - `pareto(shape, scale)`: Pareto type I on `[scale, infinity)`.
+- `lomax(shape, scale)`: shifted Pareto/Pareto II on `[0, infinity)`, useful
+  for the local INAR/BINAR scripts that simulate `(Pareto - 1) * scale`.
 - `lognormal(meanlog, sdlog)`.
 - `weibull(shape, scale)`.
 - `empirical(data)`: bootstrap distribution from observed non-negative losses.
@@ -563,6 +565,12 @@ Useful methods:
 - `expected_byclaim_counts(periods)`: theoretical by-claim count means.
 - `expected_terminal_reserve(periods)`: theoretical terminal-reserve mean.
 
+The local scripts use `T` as an array length and then report/check quantities
+up to `reserve[T - 1]`. To reproduce those printed quantities directly, pass
+`periods=T-1`. Passing `periods=T` uses the package convention and evaluates
+the full finite horizon after `T` period updates. The scripts' shifted Pareto
+sampling convention is represented by `lomax(shape, scale)`.
+
 Simulation functions:
 
 - `simulate_inar_byclaim_path(model, periods, seed=None, stop_at_ruin=True,
@@ -849,6 +857,10 @@ Minimal example:
 import numpy as np
 from matplotlib import pyplot as plt
 from ruin_theory import (
+    CramerLundbergProcess,
+    INARByClaimModel,
+    deterministic,
+    exponential,
     estimate_ruin_probability,
     optimize_periodic_prevention_calendar,
     plot_integer_byclaim_counts,
@@ -857,10 +869,17 @@ from ruin_theory import (
     plot_prevention_calendar,
     plot_ruin_curve,
     plot_terminal_reserve_distribution,
+    simulate_inar_byclaim_path,
     simulate_terminal_reserves,
     ultimate_ruin_exponential,
 )
 
+model = CramerLundbergProcess(
+    initial_capital=0.0,
+    premium_rate=1.4,
+    claim_arrival_rate=0.5,
+    claim_distribution=exponential(1.0),
+)
 u = np.linspace(0.0, 8.0, 100)
 probabilities = ultimate_ruin_exponential(model, u)
 estimate = estimate_ruin_probability(model, horizon=10.0, n_simulations=2000, seed=123)
@@ -877,6 +896,20 @@ calendar = optimize_periodic_prevention_calendar(
 )
 plot_prevention_calendar(calendar)
 plot_periodic_pressure(calendar)
+
+byclaim_model = INARByClaimModel(
+    initial_capital=20.0,
+    premium_per_period=6.0,
+    primary_count_mean=1.5,
+    initial_byclaim_mean=1.0,
+    reproduction=0.35,
+    primary_distribution=deterministic(1.0),
+    byclaim_distribution=deterministic(0.75),
+)
+byclaim_path = simulate_inar_byclaim_path(byclaim_model, periods=8, seed=123)
+fig, axes = plt.subplots(1, 2, figsize=(9, 3.5), constrained_layout=True)
+plot_integer_byclaim_path(byclaim_path, ax=axes[0])
+plot_integer_byclaim_counts(byclaim_path, ax=axes[1], kind="byclaim")
 plt.show()
 ```
 

@@ -10,6 +10,7 @@ from ruin_theory import (
     deterministic,
     empirical,
     exponential,
+    lomax,
     mixture_exponential,
     phase_type,
     raw_moment,
@@ -51,6 +52,17 @@ def test_mixture_exponential_has_zero_density_below_support():
     np.testing.assert_allclose(distribution.pdf(np.array([-1.0, 0.0])), [0.0, 4.25])
     np.testing.assert_allclose(distribution.cdf(np.array([-1.0, 0.0])), [0.0, 0.0])
     np.testing.assert_allclose(distribution.survival(np.array([-1.0, 0.0])), [1.0, 1.0])
+
+
+def test_lomax_matches_shifted_pareto_reference_convention():
+    distribution = lomax(shape=3.0, scale=2.0)
+    x = np.array([0.0, 2.0, 6.0])
+
+    assert distribution.mean() == pytest.approx(1.0)
+    assert distribution.variance() == pytest.approx(3.0)
+    np.testing.assert_allclose(distribution.survival(x), (1.0 + x / 2.0) ** -3.0)
+    np.testing.assert_allclose(distribution.cdf(x), 1.0 - (1.0 + x / 2.0) ** -3.0)
+    assert distribution.metadata == {"shape": 3.0, "scale": 2.0}
 
 
 def test_phase_type_matches_erlang_two_distributional_quantities():

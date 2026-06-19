@@ -98,9 +98,9 @@ simulation and INAR/BINAR dependent by-claim counts in discrete time.
   application. *Statistical Modelling*, 11(4), 325-349.
 
 The concrete ruin-simulation conventions for this package are also checked
-against the local reference scripts `ModeleINARen1Dcalculsderuine.py`,
-`ModeleINARen1Dmoyennesempiriques.py`, and
-`ModeleBINARen2Dcalculsde_psi_sum.py`.
+against the local reference scripts `ModèleINARen1Dcalculsderuine.py`,
+`ModèleINARen1Dmoyennesempiriques.py`, and
+`ModèleBINARen2Dcalculsde_psi_sum.py`.
 
 ## Acknowledgment
 
