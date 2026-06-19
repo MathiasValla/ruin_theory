@@ -534,8 +534,9 @@ print(model.expected_claim_amount)
 
 ## INAR/BINAR By-Claim Processes
 
-This layer implements the discrete by-claim models used in Minier's work. It is separate from `CramerLundbergProcess` because the
-secondary claim counts are temporally dependent instead of being attached
+This layer implements the discrete by-claim models used in Minier's work. It is
+separate from `CramerLundbergProcess` because the secondary claim counts are
+temporally dependent instead of being attached
 independently to each primary claim.
 
 ### `INARByClaimModel`
@@ -799,6 +800,35 @@ Available functions:
   builds inverse crossing dates and calls
   `claim_size_intensity_integrals(start, end)` to obtain each interval vector
   `(Lambda_0(start,end), Lambda_1(start,end), ...)`.
+- `claim_size_intensities_from_functions(arrival_rate, severity_pmf,
+  inventory_times, max_claim_size=...)`: high-level quadrature builder for
+  interval intensities `int_a^b lambda(t) p_k(t) dt`.
+- `discount_factors_from_interest(interest_rates)` and
+  `discounted_premiums(premiums, interest_rates, timing="beginning")`: Castaner
+  discounting helpers for beginning, middle and end-of-period premium timing.
+- `finite_time_discrete_time_ruin(increment_pmfs, premiums, initial_capital=0,
+  grid_step=1)`: exact finite-horizon recursion for independent
+  non-stationary period aggregate claims `X_t` in `U(t)=u+c(t)-S(t)`.
+- `finite_time_discrete_time_bounds(lower_increment_pmfs, upper_increment_pmfs,
+  premiums, initial_capital=0, grid_step=1)`: lower/upper ruin bounds from
+  stochastic lower and upper discretizations.
+- `finite_time_dependent_discrete_time_ruin(claim_scenarios,
+  scenario_probabilities, premiums, initial_capital=0)`: exact finite-time ruin
+  from a joint law of period aggregate claims, covering dependent and
+  exchangeable claim-severity scenarios by enumeration.
+- `exchangeable_bernoulli_claim_scenarios(success_count_pmf, claim_amount=1)`:
+  expands an exchangeable Bernoulli count law into equally likely ordered
+  scenarios.
+- `surplus_cdf_given_survival(result, period, thresholds)`,
+  `ruin_deficit_cdf(result, period, thresholds)` and
+  `ruin_deficit_quantile(result, period, probability)`: Castaner-style
+  conditional surplus, ruin-severity `chi(t,x)` and deficit quantile
+  diagnostics.
+- `period_lundberg_roots_from_pmf(increment_pmfs, premiums, grid_step=1)`,
+  `finite_time_lundberg_bounds(period_roots, initial_capital=...)`,
+  `exponential_lundberg_roots(...)`, `normal_lundberg_roots(...)` and
+  `castaner_exponential_principle_roots(...)`: non-homogeneous periodwise
+  adjustment roots and finite-time Lundberg bounds.
 - `compound_poisson_appell_base(claim_pmf, claim_arrival_rate, time,
   max_degree)`: evaluates the Picard-Lefevre convolution-type base
   polynomials `e_n(t)`.
@@ -894,10 +924,17 @@ Exact finite-time lattice example:
 
 ```python
 from ruin_theory import (
+    discounted_premiums,
+    exchangeable_bernoulli_claim_scenarios,
+    finite_time_dependent_discrete_time_ruin,
+    finite_time_discrete_time_ruin,
+    finite_time_lundberg_bounds,
     finite_time_ruin_discrete,
     finite_time_ruin_discrete_appell,
     finite_time_ruin_discrete_boundary_function,
     finite_time_ruin_discrete_nonhomogeneous_boundary_function,
+    period_lundberg_roots_from_pmf,
+    ruin_deficit_quantile,
 )
 
 # Deterministic unit claims: P(W = 1) = 1.
@@ -950,6 +987,28 @@ nonstationary = finite_time_ruin_discrete_nonhomogeneous_boundary_function(
 )
 print(nonstationary.claim_size_intensities)
 print(nonstationary.ruin_probability)
+
+premiums = discounted_premiums([1.1, 1.1], [0.05, 0.05], timing="beginning")
+discrete_time = finite_time_discrete_time_ruin(
+    [[0.55, 0.35, 0.10], [0.60, 0.30, 0.10]],
+    premiums=premiums,
+    initial_capital=0.0,
+    return_result=True,
+)
+print(discrete_time.ruin_probabilities)
+print(ruin_deficit_quantile(discrete_time, period=0, probability=0.95))
+
+scenarios, probabilities = exchangeable_bernoulli_claim_scenarios([0.25, 0.50, 0.25])
+dependent = finite_time_dependent_discrete_time_ruin(
+    scenarios,
+    probabilities,
+    premiums=[0.0, 0.0],
+    return_result=True,
+)
+print(dependent.ruin_probability)
+
+roots = period_lundberg_roots_from_pmf([[0.75, 0.25], [0.75, 0.25]], premiums=[0.5, 0.5])
+print(finite_time_lundberg_bounds(roots, initial_capital=2.0).bounds)
 ```
 
 ## Gerber-Shiu Diagnostics
@@ -1051,6 +1110,12 @@ Available diagnostics:
 - `plot_finite_time_discrete_computation_set(initial_capital, premium_units,
   method="seal", ax=None)`: computation-set scatter plot for Picard-Lefevre,
   Seal/Takacs or inventory formulas.
+- `plot_discrete_time_surplus_cdf(result, period, ax=None, label=None)`: Castaner
+  conditional surplus CDF given non-ruin at a period.
+- `plot_discrete_time_deficit_cdf(result, period, ax=None, label=None)`:
+  conditional deficit-at-ruin CDF for a ruin period.
+- `plot_finite_time_lundberg_bounds(result, ax=None, label=None)`: periodwise
+  finite-time non-homogeneous Lundberg upper bounds.
 - `plot_terminal_reserve_distribution(terminal_reserves, ax=None, bins=30,
   quantiles=(0.05, 0.5, 0.95), show_zero=True)`: terminal reserve histogram
   with zero and quantile markers.
@@ -1150,6 +1215,16 @@ Implemented now:
 - Non-stationary compound-Poisson lattice increments with integrated
   claim-size intensity measures, plus exact finite-horizon inventory and
   boundary recursions for those increments.
+- High-level quadrature builders for time-varying `lambda(t)` and lattice
+  severity laws `p_k(t)`.
+- Castaner-style non-homogeneous discrete-time finite-horizon ruin recursions
+  with discounted premium timing, lower/upper discretization bounds,
+  conditional surplus and deficit-at-ruin diagnostics, quantiles and plots.
+- Dependent and exchangeable finite-horizon scenario solvers for period claim
+  totals, including exchangeable Bernoulli scenario expansion.
+- Non-homogeneous periodwise Lundberg roots and finite-time upper bounds,
+  including explicit compound-Poisson/exponential and normal-approximation
+  roots plus Castaner exponential premium-principle roots.
 - Picard-Lefevre generalized-Appell coefficients, base polynomials and exact
   homogeneous finite-time ruin formulas for arbitrary increasing boundaries.
 - Phase-type severity distributions and exact Cramer-Lundberg ultimate ruin
@@ -1174,28 +1249,10 @@ Planned extensions:
 - Matrix-exponential extensions beyond standard phase-type severities.
 - Phase-type renewal waits and matrix-valued finite-time ruin solvers.
 - Matrix-valued/closed-form Gerber-Shiu solvers beyond simulation diagnostics.
-- Finite-time exact discrete extensions from Picard-Lefevre,
-  Rulliere-Loisel, Lefevre-Loisel and Castaner et al.:
-  - Appell-style extensions for non-stationary claim severities, where the
-    homogeneous polynomial convolution structure no longer applies directly.
-  - High-level numerical quadrature builders for continuous `lambda(t)` and
-    `g_k(t)` inputs beyond user-supplied interval integrals `Lambda_k(a,b)`.
-  - Dependent and exchangeable claim-severity finite-horizon formulas based on
-    joint partial sums and order-statistic tail probabilities, plus
-    comonotonic/common-factor dependence examples and sensitivity plots.
-  - Discrete-time non-homogeneous risk models with interest, inflation,
-    beginning/end/mid-period premium timing, lower/upper discretization bounds,
-    finite-time ruin probabilities and conditional surplus/deficit
-    distributions at ruin.
-  - Ruin-severity distribution `chi(t, x)`, conditional surplus given
-    non-ruin, conditional deficit given ruin, quantile tables and the figures
-    reported by Castaner et al.
-  - Non-homogeneous Lundberg-type bounds, periodwise adjustment roots and the
-    explicit compound-Poisson/exponential and normal-approximation premium
-    principle formulas.
-  - Reproduction examples for Rulliere-Loisel computation-set figures and
-    tables, Picard-Lefevre polynomial identities, Lefevre-Loisel dependence
-    examples and Castaner et al. discretization, severity, quantile and
-    Lundberg-bound tables.
+- Continuous-severity Appell/pseudo-polynomial extensions beyond lattice or
+  discretized inputs.
+- Larger curated reproduction notebooks for every numerical table in
+  Rulliere-Loisel, Lefevre-Loisel and Castaner et al.; core algorithms and
+  minimal reproduction tests are implemented.
 - Finite-horizon dynamic seasonal prevention beyond fixed annual calendars.
 - Two-claim-type prevention from Gauchon et al. (2021).

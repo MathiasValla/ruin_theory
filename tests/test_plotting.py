@@ -14,10 +14,13 @@ from ruin_theory.plotting import (
     plot_integer_byclaim_counts,
     plot_integer_byclaim_path,
     plot_deficit_at_ruin,
+    plot_discrete_time_deficit_cdf,
+    plot_discrete_time_surplus_cdf,
     plot_finite_time_appell_coefficients,
     plot_finite_time_discrete_boundary,
     plot_finite_time_discrete_computation_set,
     plot_finite_time_discrete_survival,
+    plot_finite_time_lundberg_bounds,
     plot_gerber_shiu_scatter,
     plot_path,
     plot_paths,
@@ -37,6 +40,8 @@ from ruin_theory import (
     finite_time_ruin_discrete_inventory,
     finite_time_ruin_discrete_nonhomogeneous_boundary,
     finite_time_ruin_discrete,
+    finite_time_discrete_time_ruin,
+    finite_time_lundberg_bounds,
     gerber_shiu_from_paths,
     simulate_binar_byclaim_path,
     simulate_inar_byclaim_path,
@@ -303,6 +308,28 @@ def test_plot_finite_time_appell_coefficients():
         assert axis.get_xlabel() == "degree"
         assert axis.get_ylabel() == "Appell coefficient"
         assert len(axis.lines) == 2
+    finally:
+        plt.close(fig)
+
+
+def test_plot_discrete_time_castaner_diagnostics():
+    result = finite_time_discrete_time_ruin(
+        [[0.5, 0.5], [0.5, 0.5]],
+        premiums=[0.0, 0.0],
+        return_result=True,
+    )
+    bounds = finite_time_lundberg_bounds([2.0, 1.0], initial_capital=1.0)
+
+    fig, axes = plt.subplots(1, 3)
+    try:
+        surplus_axis = plot_discrete_time_surplus_cdf(result, period=1, ax=axes[0])
+        deficit_axis = plot_discrete_time_deficit_cdf(result, period=0, ax=axes[1])
+        bound_axis = plot_finite_time_lundberg_bounds(bounds, ax=axes[2], label="bound")
+
+        assert surplus_axis.get_ylabel() == "conditional CDF"
+        assert deficit_axis.get_xlabel() == "deficit at ruin"
+        assert bound_axis.get_ylabel() == "upper bound"
+        assert bound_axis.get_legend() is not None
     finally:
         plt.close(fig)
 

@@ -90,6 +90,10 @@ Cramer-Lundberg primary-claim models with linear severity scaling:
 - exact finite-time inventory recursions for deterministic increasing
   boundaries, automatic inverse crossing dates and non-homogeneous Poisson
   arrival means or interval claim-size intensity measures;
+- finite-horizon non-homogeneous discrete-time ruin recursions with discounted
+  premiums, lower/upper discretization bounds, dependent or exchangeable claim
+  scenarios, surplus/deficit-at-ruin distributions and periodwise Lundberg
+  bounds;
 - Picard-Lefevre generalized-Appell base polynomials, coefficients and
   homogeneous finite-time boundary formulas;
 - Lundberg adjustment coefficients, bounds and light-tail asymptotics;
@@ -114,10 +118,10 @@ injections and nonlinear prevention are available in simulation.
 Markov-modulated methods and matrix-valued/closed-form Gerber-Shiu solvers are
 planned extensions beyond the current simulation diagnostics. The two-claim-type
 prevention model remains planned beyond the current single-risk and periodic
-prevention optimizers. Finite-time premium-dependent models, dependent-claim
-finite-horizon formulas and discrete-time non-homogeneous ruin models with
-interest are planned beyond the current lattice finite-time formulas; the
-detailed finite-time implementation roadmap is in `docs/features.md`.
+prevention optimizers. Premium-dependent finite-time dynamics and richer
+matrix-valued dependence solvers remain planned beyond the current lattice
+finite-time formulas; the detailed finite-time implementation roadmap is in
+`docs/features.md`.
 
 ## Scientific references
 

@@ -17,6 +17,12 @@ from .finite_discrete import (
     FiniteTimeDiscreteRuinResult,
     finite_time_discrete_computation_set,
 )
+from .finite_discrete_time import (
+    FiniteTimeDependentRuinResult,
+    FiniteTimeDiscreteTimeRuinResult,
+    FiniteTimeLundbergBoundResult,
+    distribution_cdf,
+)
 from .integer_byclaims import IntegerByClaimPath
 from .prevention import PeriodicPreventionResult
 from .results import GerberShiuResult, RuinEstimate, SimulationPath
@@ -361,6 +367,89 @@ def plot_finite_time_discrete_computation_set(
     axis.set_xlabel("premium units")
     axis.set_ylabel("aggregate claim index")
     axis.set_title(f"{method.replace('-', ' ').title()} computation set")
+    return axis
+
+
+def _discrete_time_result(
+    result: FiniteTimeDiscreteTimeRuinResult | FiniteTimeDependentRuinResult,
+) -> FiniteTimeDiscreteTimeRuinResult | FiniteTimeDependentRuinResult:
+    if not isinstance(result, (FiniteTimeDiscreteTimeRuinResult, FiniteTimeDependentRuinResult)):
+        raise TypeError("result must be a finite-time discrete-time result")
+    return result
+
+
+def plot_discrete_time_surplus_cdf(
+    result: FiniteTimeDiscreteTimeRuinResult | FiniteTimeDependentRuinResult,
+    *,
+    period: int,
+    ax: Axes | None = None,
+    label: str | None = None,
+) -> Axes:
+    """Plot conditional surplus CDF given non-ruin at a period."""
+
+    checked = _discrete_time_result(result)
+    values, probabilities = checked.surplus_distributions[period]
+    if values.size == 0:
+        raise ValueError("surplus distribution is empty for this period")
+    points = np.sort(values)
+    cdf = distribution_cdf((values, probabilities), points)
+    axis = _axis(ax)
+    axis.step(points, cdf, where="post", color="#0b6e4f", linewidth=2.0, label=label)
+    axis.set_xlabel("surplus")
+    axis.set_ylabel("conditional CDF")
+    axis.set_ylim(0.0, 1.0)
+    axis.set_title("Surplus given non-ruin")
+    if label:
+        axis.legend()
+    return axis
+
+
+def plot_discrete_time_deficit_cdf(
+    result: FiniteTimeDiscreteTimeRuinResult | FiniteTimeDependentRuinResult,
+    *,
+    period: int,
+    ax: Axes | None = None,
+    label: str | None = None,
+) -> Axes:
+    """Plot conditional deficit-at-ruin CDF for a ruin period."""
+
+    checked = _discrete_time_result(result)
+    values, probabilities = checked.deficit_distributions[period]
+    if values.size == 0:
+        raise ValueError("deficit distribution is empty for this period")
+    points = np.sort(values)
+    cdf = distribution_cdf((values, probabilities), points)
+    axis = _axis(ax)
+    axis.step(points, cdf, where="post", color="#8c1d2d", linewidth=2.0, label=label)
+    axis.set_xlabel("deficit at ruin")
+    axis.set_ylabel("conditional CDF")
+    axis.set_ylim(0.0, 1.0)
+    axis.set_title("Deficit conditional on ruin")
+    if label:
+        axis.legend()
+    return axis
+
+
+def plot_finite_time_lundberg_bounds(
+    result: FiniteTimeLundbergBoundResult,
+    *,
+    ax: Axes | None = None,
+    label: str | None = None,
+) -> Axes:
+    """Plot finite-time non-homogeneous Lundberg bounds by horizon."""
+
+    if not isinstance(result, FiniteTimeLundbergBoundResult):
+        raise TypeError("result must be a FiniteTimeLundbergBoundResult")
+    horizons = np.arange(1, result.bounds.size + 1)
+    axis = _axis(ax)
+    axis.step(horizons, result.bounds, where="post", color="#4c78a8", linewidth=2.0, label=label)
+    axis.scatter(horizons, result.bounds, color="#4c78a8", s=28)
+    axis.set_xlabel("horizon")
+    axis.set_ylabel("upper bound")
+    axis.set_ylim(0.0, 1.0)
+    axis.set_title("Finite-time Lundberg bound")
+    if label:
+        axis.legend()
     return axis
 
 
