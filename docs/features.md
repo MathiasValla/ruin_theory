@@ -751,6 +751,16 @@ Available functions:
   PH initial vector and `t = -T 1`.
 - `finite_time_ruin_exponential(model, u, horizon)`: finite-time formula for
   exponential primary claims.
+- `finite_time_ruin_discrete(claim_pmf, initial_capital, premium_rate,
+  claim_arrival_rate, horizon, method="seal")`: exact finite-time ruin
+  probability for integer-valued claim sizes in the Cramer-Lundberg model.
+  Available methods are `"seal"` for the stable probability-only
+  Seal/Takacs formula, `"takacs"` for the zero-initial-capital Takacs formula,
+  `"picard-lefevre"` for the original Picard-Lefevre pseudo-probability
+  formula, and `"inventory"` for the direct inventory-date recursion.
+- `compound_poisson_lattice_pmf(claim_pmf, mean, max_aggregate)`: exact
+  compound-Poisson lattice masses `P(S=j)` for `j <= max_aggregate`; the
+  unreturned tail is intentionally truncated.
 - `expected_time_to_ruin_exponential(model, u=None)`: conditional mean time to
   ruin for exponential claims under the net profit condition.
 - `adjustment_coefficient(model, upper=None, tol=1e-12)`: Lundberg root.
@@ -824,6 +834,35 @@ model = CramerLundbergProcess(
 )
 u = np.array([0.0, 1.0, 2.0, 4.0])
 print(ultimate_ruin_panjer(model, u, step=0.05, max_value=30.0))
+```
+
+Exact finite-time lattice example:
+
+```python
+from ruin_theory import finite_time_ruin_discrete
+
+# Deterministic unit claims: P(W = 1) = 1.
+ruin = finite_time_ruin_discrete(
+    claim_pmf=[0.0, 1.0],
+    initial_capital=5,
+    premium_rate=1.25,
+    claim_arrival_rate=1.0,
+    horizon=10.0,
+    method="seal",
+)
+print(ruin)
+
+details = finite_time_ruin_discrete(
+    claim_pmf=[0.0, 0.25, 0.50, 0.25],
+    initial_capital=4,
+    premium_rate=1.3,
+    claim_arrival_rate=0.8,
+    horizon=4.2,
+    method="inventory",
+    return_result=True,
+)
+print(details.inventory_times)
+print(details.survival_probabilities)
 ```
 
 ## Gerber-Shiu Diagnostics
@@ -1006,6 +1045,8 @@ Implemented now:
 
 - Classical Cramer-Lundberg exact formulas for exponential and hyperexponential
   primary claims.
+- Exact finite-time ruin probabilities for integer-valued claim sizes using
+  Seal/Takacs, Picard-Lefevre and direct inventory-recursion formulas.
 - Phase-type severity distributions and exact Cramer-Lundberg ultimate ruin
   probabilities for phase-type primary claims.
 - Loss moments, coverage transformations and lattice discretization.

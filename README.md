@@ -85,6 +85,8 @@ Cramer-Lundberg primary-claim models with linear severity scaling:
 - ultimate ruin for exponential and hyperexponential severities;
 - ultimate ruin for phase-type severities in the Cramer-Lundberg model;
 - finite-time ruin for exponential severities;
+- exact finite-time ruin for integer-valued claim sizes by stable
+  Seal/Takacs formulas, Picard-Lefevre's formula and inventory recursions;
 - Lundberg adjustment coefficients, bounds and light-tail asymptotics;
 - Pollaczek-Khinchine Monte Carlo via equilibrium claim sampling;
 - discrete Pollaczek-Khinchine/Panjer approximations for ultimate ruin;

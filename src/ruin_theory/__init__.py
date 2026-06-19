@@ -40,6 +40,11 @@ from .formulas import (
     ultimate_ruin_hyperexponential,
     ultimate_ruin_phase_type,
 )
+from .finite_discrete import (
+    FiniteTimeDiscreteRuinResult,
+    compound_poisson_lattice_pmf,
+    finite_time_ruin_discrete,
+)
 from .gerber_shiu import estimate_gerber_shiu, gerber_shiu_from_paths
 from .integer_byclaims import (
     BINARByClaimModel,
@@ -115,6 +120,7 @@ __all__ = [
     "CramerLundbergProcess",
     "DiscretizedDistribution",
     "ExpectedSurplusPreventionResult",
+    "FiniteTimeDiscreteRuinResult",
     "FrequencyModel",
     "GerberShiuResult",
     "HeavyTailPreventionResult",
@@ -134,6 +140,7 @@ __all__ = [
     "deterministic",
     "discretize",
     "compound_geometric_pmf",
+    "compound_poisson_lattice_pmf",
     "discrete_pollaczek_khinchine_ultimate_ruin",
     "equilibrium_severity_pmf",
     "empirical",
@@ -148,6 +155,7 @@ __all__ = [
     "expected_time_to_ruin_exponential",
     "exponential",
     "finite_time_ruin_exponential",
+    "finite_time_ruin_discrete",
     "gamma",
     "gerber_shiu_from_paths",
     "heavy_tail_integrated_tail_asymptotic",

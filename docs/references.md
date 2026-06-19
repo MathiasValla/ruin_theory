@@ -47,6 +47,24 @@ features in scientific work.
   *Insurance: Mathematics and Economics*, 21, 129-137.
 - Gerber, H. U., and Shiu, E. S. W. (1998). On the time value of ruin. *North
   American Actuarial Journal*, 2, 48-72.
+- Picard, P., and Lefevre, C. (1997). The probability of ruin in finite time
+  with discrete claim size distribution. *Scandinavian Actuarial Journal*,
+  1997(1), 58-69.
+- Picard, P., and Lefevre, C. (1998). The moments of ruin time in the classical
+  risk model with discrete claim size distribution. *Insurance: Mathematics
+  and Economics*, 23(2), 157-172.
+- Seal, H. L. (1969). *Stochastic Theory of a Risk Business*. Wiley, New York.
+- Takacs, L. (1962). A generalization of the ballot problem and its application
+  in the theory of queues. *Journal of the American Statistical Association*,
+  57(298), 327-337.
+- De Vylder, F. E. (1999). Numerical finite-time ruin probabilities by the
+  Picard-Lefevre formula. *Scandinavian Actuarial Journal*, 1999(2), 97-105.
+- Ignatov, Z. G., Kaishev, V. K., and Krachunov, R. S. (2001). An improved
+  finite-time ruin probability formula and its Mathematica implementation.
+  *Insurance: Mathematics and Economics*, 29(3), 375-386.
+- Loisel, S. (2004). *Contribution a l'etude de processus univaries et
+  multivaries de la theorie de la ruine*. PhD thesis, Universite Claude
+  Bernard Lyon 1.
 - Panjer, H. H. (1981). Recursive evaluation of a family of compound
   distributions. *ASTIN Bulletin*, 12, 22-26.
 - Klugman, S. A., Panjer, H. H., and Willmot, G. E. (2012). *Loss Models: From
