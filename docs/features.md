@@ -320,6 +320,57 @@ print(result.safety_loading)
 print(result.adjustment_coefficient)
 ```
 
+### `optimize_expected_surplus_prevention`
+
+Optimizes the same constant prevention spend `p` for the expected surplus at a
+fixed horizon. In the Gauchon et al. (2020) model,
+
+```text
+E[U(t, p)] = u + (c - p - lambda(p) E[X]) t.
+```
+
+The function therefore maximizes the net drift
+`c - p - lambda(p) * E[X]`. This criterion is not the same as the infinite-time
+ruin-probability criterion; for example, with `lambda(p) = exp(-a p)` and
+`E[X] = 1`, an interior expected-surplus optimum exists only when `a > 1`.
+
+Arguments:
+
+- `claim_distribution`: severity law with finite positive mean.
+- `premium_rate`: gross premium rate `c`.
+- `frequency_function`: callable `lambda(p)` returning the claim arrival
+  intensity after spending `p` per unit time on prevention.
+- `horizon`: positive time horizon used in `E[U(t, p)]`.
+- `max_prevention`: optional upper bound for admissible `p`; defaults to just
+  below `premium_rate`.
+- `activation_threshold`: optional threshold `P` for inactive prevention before
+  `P`; the optimizer compares the active optimum with `p=0`.
+- `initial_capital`: initial surplus `u`.
+- `tol`: scalar optimizer tolerance.
+
+Returns an `ExpectedSurplusPreventionResult` with the optimal `amount`, net
+premium rate, optimized frequency, expected claim amount, net drift, expected
+surplus at the horizon, induced `PreventionProgram`, and induced
+`CramerLundbergProcess`.
+
+Minimal example:
+
+```python
+import math
+from ruin_theory import exponential, optimize_expected_surplus_prevention
+
+result = optimize_expected_surplus_prevention(
+    exponential(rate=1.0),
+    premium_rate=10.0,
+    frequency_function=lambda p: math.exp(-2.0 * p),
+    horizon=3.0,
+    initial_capital=5.0,
+)
+print(result.amount)
+print(result.net_drift)
+print(result.expected_surplus)
+```
+
 ## By-Claims And Capital Injections
 
 ### `ByClaimModel`
@@ -580,7 +631,8 @@ Implemented now:
 - Loss moments, coverage transformations and lattice discretization.
 - Aggregate-loss distributions by Panjer recursion for common counting laws.
 - Deterministic Pollaczek-Khinchine/Panjer ruin approximations.
-- Constant single-risk prevention optimization following Gauchon et al. (2020).
+- Constant single-risk prevention optimization for ruin probability,
+  adjustment coefficient and expected surplus following Gauchon et al. (2020).
 - Renewal and prevention-rich models in simulation.
 - By-claims with Poisson or geometric secondary counts.
 - Equilibrium-tail helper and heavy-tail asymptotic path.

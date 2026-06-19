@@ -48,7 +48,12 @@ from .models import (
     RiskProcess,
     SparreAndersenProcess,
 )
-from .prevention import ConstantPreventionResult, optimize_constant_prevention
+from .prevention import (
+    ConstantPreventionResult,
+    ExpectedSurplusPreventionResult,
+    optimize_constant_prevention,
+    optimize_expected_surplus_prevention,
+)
 from .renewal import (
     PanjerRuinResult,
     compound_geometric_pmf,
@@ -75,6 +80,7 @@ __all__ = [
     "ConstantPreventionResult",
     "CramerLundbergProcess",
     "DiscretizedDistribution",
+    "ExpectedSurplusPreventionResult",
     "FrequencyModel",
     "PreventionProgram",
     "PanjerRuinResult",
@@ -108,6 +114,7 @@ __all__ = [
     "limited_moment",
     "mixture_exponential",
     "optimize_constant_prevention",
+    "optimize_expected_surplus_prevention",
     "compound_poisson_distribution",
     "pareto",
     "phase_type",

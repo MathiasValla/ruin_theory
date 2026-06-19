@@ -87,14 +87,15 @@ Cramer-Lundberg primary-claim models with linear severity scaling:
 - limited moments, coverage transformations and severity discretization;
 - Panjer aggregate distributions for Poisson, binomial, geometric and
   negative-binomial frequencies;
-- constant prevention optimization in the Gauchon et al. (2020) model;
+- constant prevention optimization for ruin probability, adjustment coefficient
+  and expected surplus in the Gauchon et al. (2020) model;
 - De Vylder three-moment approximation for supported severity families.
 
 Sparre-Andersen arrivals, by-claims, capital injections and nonlinear prevention
 are available in simulation. Markov-modulated methods and matrix-valued
 Gerber-Shiu quantities are planned extensions rather than completed APIs. The
 two-claim-type and periodic prevention models remain planned extensions beyond
-the constant single-risk optimizer.
+the constant single-risk optimizers.
 
 ## Scientific references
 
