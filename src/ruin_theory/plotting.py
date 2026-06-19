@@ -9,6 +9,7 @@ from matplotlib import pyplot as plt
 from matplotlib.axes import Axes
 from numpy.typing import ArrayLike
 
+from .prevention import PeriodicPreventionResult
 from .results import RuinEstimate, SimulationPath
 
 
@@ -225,4 +226,45 @@ def plot_ruin_time_histogram(
     axis.set_xlabel("time to ruin")
     axis.set_ylabel("frequency")
     axis.set_title("Conditional time to ruin")
+    return axis
+
+
+def plot_prevention_calendar(
+    calendar: PeriodicPreventionResult,
+    *,
+    ax: Axes | None = None,
+    labels: Iterable[str] | None = None,
+    show_effective: bool = True,
+) -> Axes:
+    """Plot a periodic prevention spending calendar."""
+
+    if not isinstance(calendar, PeriodicPreventionResult):
+        raise TypeError("calendar must be a PeriodicPreventionResult")
+
+    n_periods = calendar.amounts.size
+    x = np.arange(n_periods)
+    if labels is None:
+        tick_labels = [str(i + 1) for i in x]
+    else:
+        tick_labels = list(labels)
+        if len(tick_labels) != n_periods:
+            raise ValueError("labels must match the number of calendar periods")
+
+    axis = _axis(ax)
+    axis.bar(x, calendar.amounts, color="#4c78a8", alpha=0.88, label="spending")
+    if show_effective and calendar.lag_steps:
+        axis.plot(
+            x,
+            calendar.effective_amounts,
+            color="#b00020",
+            linewidth=1.8,
+            marker="o",
+            label="effective",
+        )
+        axis.legend()
+
+    axis.set_xticks(x)
+    axis.set_xticklabels(tick_labels)
+    axis.set_ylabel("prevention rate")
+    axis.set_title("Periodic prevention calendar")
     return axis

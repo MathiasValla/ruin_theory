@@ -371,6 +371,98 @@ print(result.net_drift)
 print(result.expected_surplus)
 ```
 
+### `optimize_periodic_prevention_calendar`
+
+Optimizes a discrete periodic prevention calendar under the Minier-Valla-Lefevre
+seasonal-prevention KKT rule. The implemented finite-dimensional problem is
+
+```text
+min sum_i W_i exp(-a p_i)
+subject to sum_i d_i p_i = pbar, 0 <= p_i <= pmax,
+```
+
+where `W_i` is the integrated seasonal pressure in period `i`, `d_i` is the
+period duration as a fraction of the year, and `a` is the exponential prevention
+effectiveness. For a light-tailed Lundberg pressure with season-dependent
+severity, use `W_i` proportional to `Lambda_i * (M_i(rho) - 1)`; for an
+expected-loss calendar, use `W_i` proportional to frequency times retained mean
+severity.
+
+Arguments:
+
+- `weights`: non-negative period pressures `W_i`. They may already include the
+  period duration.
+- `annual_budget`: annual prevention budget `pbar`.
+- `max_prevention`: instantaneous annualized spending cap `pmax`.
+- `effectiveness`: exponential response parameter `a`.
+- `durations`: optional positive period durations summing to one; defaults to
+  equal periods.
+- `lag_steps`: integer implementation lag. With `lag_steps=1`, spending in one
+  period affects the next period.
+- `tol`: numerical tolerance for budget feasibility and bisection.
+
+Returns a `PeriodicPreventionResult` with spending `amounts`,
+`effective_amounts`, pressure values, durations, the Lagrange threshold `tau`,
+baseline/controlled/constant pressures, and a `frequency_windows()` method that
+can feed `PreventionProgram`.
+
+Minimal example:
+
+```python
+import numpy as np
+from ruin_theory import optimize_periodic_prevention_calendar
+
+monthly_pressure = np.array([0.09, 0.07, 0.04, 0.02, 0.01, 0.01,
+                             0.01, 0.02, 0.03, 0.05, 0.08, 0.11])
+calendar = optimize_periodic_prevention_calendar(
+    monthly_pressure,
+    annual_budget=0.08,
+    max_prevention=0.25,
+    effectiveness=5.0,
+)
+print(calendar.amounts)
+print(calendar.controlled_pressure, calendar.constant_pressure)
+```
+
+### Heavy-Tail Periodic Prevention
+
+For regularly varying annual/event losses with tail index `alpha in (0, 1)`,
+the heavy-tail follow-up replaces the Lundberg coefficient by a controlled
+annual tail constant. If frequency prevention is `exp(-a p)` and multiplicative
+severity prevention is `exp(-b p)`, the effective exponential response is
+`a + alpha * b`.
+
+Available functions:
+
+- `optimize_heavy_tail_prevention_calendar(...)`: optimizes the periodic
+  tail-pressure calendar and optionally computes the large-budget expected
+  ruin-time asymptotic when `annual_capacity` is supplied.
+- `heavy_tail_expected_ruin_time_asymptotic(tail_index, annual_capacity,
+  tail_constant, annual_budget=0)`: returns
+  `c_p**(alpha/(1-alpha)) * (C Gamma(1-alpha))**(-1/(1-alpha))`.
+- `heavy_tail_one_big_jump_ruin_probability(calendar, tail_index,
+  initial_capital, annual_capacity, horizon, ...)`: finite-horizon
+  one-big-jump heuristic for a stepwise periodic calendar.
+
+Minimal example:
+
+```python
+from ruin_theory import optimize_heavy_tail_prevention_calendar
+
+result = optimize_heavy_tail_prevention_calendar(
+    [0.02, 0.07, 0.03, 0.01],
+    tail_index=0.5,
+    annual_budget=0.12,
+    max_prevention=0.36,
+    frequency_effectiveness=5.0,
+    severity_effectiveness=0.0,
+    annual_capacity=1.0,
+)
+print(result.amounts)
+print(result.controlled_tail_pressure)
+print(result.expected_time_to_ruin_asymptotic)
+```
+
 ## By-Claims And Capital Injections
 
 ### `ByClaimModel`
@@ -595,6 +687,9 @@ Available diagnostics:
 - `plot_terminal_reserve_distribution(terminal_reserves, ax=None, bins=30,
   quantiles=(0.05, 0.5, 0.95), show_zero=True)`: terminal reserve histogram
   with zero and quantile markers.
+- `plot_prevention_calendar(calendar, ax=None, labels=None,
+  show_effective=True)`: bar plot of a periodic prevention calendar, with the
+  lagged effective calendar overlaid when relevant.
 
 Minimal example:
 
@@ -603,6 +698,8 @@ import numpy as np
 from matplotlib import pyplot as plt
 from ruin_theory import (
     estimate_ruin_probability,
+    optimize_periodic_prevention_calendar,
+    plot_prevention_calendar,
     plot_ruin_curve,
     plot_terminal_reserve_distribution,
     simulate_terminal_reserves,
@@ -617,6 +714,13 @@ terminal = simulate_terminal_reserves(model, horizon=10.0, n_simulations=2000, s
 fig, axes = plt.subplots(1, 2, figsize=(9, 3.5), constrained_layout=True)
 plot_ruin_curve(u, probabilities, ax=axes[0], label="ultimate")
 plot_terminal_reserve_distribution(terminal, ax=axes[1])
+calendar = optimize_periodic_prevention_calendar(
+    [0.09, 0.07, 0.04, 0.02, 0.01, 0.01, 0.01, 0.02, 0.03, 0.05, 0.08, 0.11],
+    annual_budget=0.08,
+    max_prevention=0.25,
+    effectiveness=5.0,
+)
+plot_prevention_calendar(calendar)
 plt.show()
 ```
 
@@ -633,6 +737,8 @@ Implemented now:
 - Deterministic Pollaczek-Khinchine/Panjer ruin approximations.
 - Constant single-risk prevention optimization for ruin probability,
   adjustment coefficient and expected surplus following Gauchon et al. (2020).
+- Periodic prevention calendars with projected-log KKT allocation, lagged
+  calendars, and heavy-tail tail-pressure optimization.
 - Renewal and prevention-rich models in simulation.
 - By-claims with Poisson or geometric secondary counts.
 - Equilibrium-tail helper and heavy-tail asymptotic path.
@@ -644,5 +750,5 @@ Planned extensions:
 - Phase-type renewal waits and matrix-valued finite-time ruin solvers.
 - Gerber-Shiu penalties with surplus-before-ruin and deficit-at-ruin records.
 - Discrete-time INAR/BINAR by-claim processes.
-- Seasonal/periodic prevention optimization beyond simulation windows.
+- Finite-horizon dynamic seasonal prevention beyond fixed annual calendars.
 - Two-claim-type prevention from Gauchon et al. (2021).

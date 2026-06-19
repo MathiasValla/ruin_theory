@@ -13,10 +13,12 @@ from matplotlib import pyplot as plt
 from ruin_theory.plotting import (
     plot_path,
     plot_paths,
+    plot_prevention_calendar,
     plot_ruin_curve,
     plot_ruin_time_histogram,
     plot_terminal_reserve_distribution,
 )
+from ruin_theory.prevention import optimize_periodic_prevention_calendar
 from ruin_theory.results import RuinEstimate, SimulationPath
 
 
@@ -157,6 +159,33 @@ def test_plot_ruin_time_histogram_handles_ruined_and_unruined_samples():
         assert len(ax.patches) > 0
     finally:
         plt.close(fig)
+
+
+def test_plot_prevention_calendar_handles_lagged_calendar():
+    calendar = optimize_periodic_prevention_calendar(
+        [1.0, 4.0, 2.0],
+        annual_budget=0.3,
+        max_prevention=0.8,
+        effectiveness=2.0,
+        lag_steps=1,
+    )
+
+    fig, ax = plt.subplots()
+    try:
+        result = plot_prevention_calendar(calendar, ax=ax, labels=["A", "B", "C"])
+
+        assert result is ax
+        assert ax.get_ylabel() == "prevention rate"
+        assert ax.get_title() == "Periodic prevention calendar"
+        assert [tick.get_text() for tick in ax.get_xticklabels()] == ["A", "B", "C"]
+        assert len(ax.patches) == 3
+        assert len(ax.lines) == 1
+        assert ax.get_legend() is not None
+    finally:
+        plt.close(fig)
+
+    with pytest.raises(ValueError, match="labels"):
+        plot_prevention_calendar(calendar, labels=["A"])
 
     fig, ax = plt.subplots()
     try:

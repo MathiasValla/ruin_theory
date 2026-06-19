@@ -89,13 +89,15 @@ Cramer-Lundberg primary-claim models with linear severity scaling:
   negative-binomial frequencies;
 - constant prevention optimization for ruin probability, adjustment coefficient
   and expected surplus in the Gauchon et al. (2020) model;
+- periodic prevention calendars with projected-log KKT allocation, lagged
+  calendars and heavy-tail tail-pressure optimization;
 - De Vylder three-moment approximation for supported severity families.
 
 Sparre-Andersen arrivals, by-claims, capital injections and nonlinear prevention
 are available in simulation. Markov-modulated methods and matrix-valued
 Gerber-Shiu quantities are planned extensions rather than completed APIs. The
-two-claim-type and periodic prevention models remain planned extensions beyond
-the constant single-risk optimizers.
+two-claim-type prevention model remains a planned extension beyond the current
+single-risk and periodic prevention optimizers.
 
 ## Scientific references
 
@@ -105,7 +107,8 @@ Albrecher (2010). Numerical validation examples and software comparisons cite
 Dutang, Goulet and Pigeon (2008) and Goulet's `actuar` ruin-theory notes.
 Prevention features are guided by Ehrlich and Becker (1972), Gauchon et al.
 (2020, 2021), Schmidli (2008), and the seasonal-prevention manuscript by
-Minier, Valla and Lefevre.
+Minier, Valla and Lefevre, with heavy-tail periodic prevention following the
+2026 manuscript by Valla, Rivoire, Minier, Guibert and Loisel.
 
 Claude Lefevre's lecture notes and comments helped orient the mathematical
 reading for this project; formal references cite the original scientific
