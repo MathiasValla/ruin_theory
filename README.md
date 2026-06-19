@@ -29,6 +29,8 @@ published actuarial software examples used as numerical reference checks.
   reproducible discrete by-claim simulations and plots.
 - [Gerber-Shiu diagnostics example](examples/gerber_shiu_diagnostics.py):
   finite-horizon discounted penalties with deficit/surplus plots.
+- [Dividend-barrier diagnostics example](examples/barrier_dividends.py):
+  barrier hitting probabilities, cumulative dividends and ruin-time plots.
 
 ## Quick start
 
@@ -98,6 +100,8 @@ Cramer-Lundberg primary-claim models with linear severity scaling:
   homogeneous finite-time boundary formulas;
 - constant-interest exponential ruin, double-barrier win-first probabilities,
   maximum-before-default hazards and sensitivity plots;
+- horizontal dividend-barrier analytics, geometric/renewal dividend
+  distributions, path simulation and comparison plots;
 - Lundberg adjustment coefficients, bounds and light-tail asymptotics;
 - Pollaczek-Khinchine Monte Carlo via equilibrium claim sampling;
 - discrete Pollaczek-Khinchine/Panjer approximations for ultimate ruin;

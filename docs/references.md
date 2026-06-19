@@ -88,6 +88,18 @@ features in scientific work.
 - Klugman, S. A., Panjer, H. H., and Willmot, G. E. (2012). *Loss Models: From
   Data to Decisions*, 4th edition. Wiley, New York.
 
+## Dividend Barrier Strategies
+
+- de Finetti, B. (1957). Su un'impostazione alternativa della teoria collettiva
+  del rischio. *Transactions of the XVth International Congress of Actuaries*,
+  New York, II, 433-443.
+- Asmussen, S., Hojgaard, B., and Taksar, M. (2000). Optimal risk control and
+  dividend distribution policies. *Finance and Stochastics*, 4, 299-324.
+- Frostig, E. (2005). The expected time to ruin in a risk process with constant
+  barrier via martingales. *Insurance: Mathematics and Economics*, 37, 216-228.
+- Avanzi, B. (2009). Strategies for dividend distribution: A review. *North
+  American Actuarial Journal*, 13(2), 217-251.
+
 ## Actuarial Software References
 
 - Dutang, C., Goulet, V., and Pigeon, M. (2008). actuar: An R package for

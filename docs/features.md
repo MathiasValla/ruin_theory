@@ -1142,6 +1142,117 @@ sensitivity = [
 plot_win_first_sensitivity(deltas, sensitivity, parameter_name="interest force", ax=axes[2])
 ```
 
+### Dividend Barrier Strategy
+
+The dividend block implements the horizontal barrier strategy discussed in
+de Finetti-style dividend theory and in the Rulliere-Loisel win-first
+application. A reserve process capped at `b` pays excess deterministic growth as
+dividends until the next claim. The package provides both the renewal/geometric
+cycle formulas and Monte Carlo paths under the reflected barrier.
+
+Analytic functions:
+
+- `barrier_hit_probability_exponential_interest_force(initial_capital,
+  barrier, premium_rate, claim_arrival_rate, claim_rate, interest_force=0)`:
+  probability of reaching `b` before ruin, computed as a win-first probability.
+- `barrier_continuation_probability_exponential_interest_force(barrier,
+  premium_rate, claim_arrival_rate, claim_rate, interest_force=0)`: computes
+  `beta_b = E[WF(b-W, W)]` for exponential claims.
+- `barrier_dividend_payment_cdf(x, claim_arrival_rate, interest_force=0,
+  dividend_rate=1)`: distribution of one barrier payment period. With
+  `interest_force=0`, this is the exponential stay-time payment `c Delta`; with
+  interest it is the normalized Loisel payment
+  `dividend_rate * int_0^Delta exp(delta s) ds`.
+- `barrier_dividend_payment_mean(...)`: finite mean of one payment period.
+- `barrier_dividend_period_count_pmf(max_periods, hit_probability,
+  continuation_probability)`: probability mass of the number of dividend
+  payment periods, with atom `P(K=0)=1-hit_probability`.
+- `expected_cumulative_barrier_dividends(hit_probability,
+  continuation_probability, claim_arrival_rate, interest_force=0,
+  dividend_rate=1, convention="renewal")`: expected cumulative dividends.
+  `convention="renewal"` uses the compound-geometric renewal equation;
+  `convention="loisel"` reproduces the Proposition I.7 convention from
+  Loisel's notes.
+- `barrier_dividend_compound_geometric_cdf(x, hit_probability,
+  continuation_probability, claim_arrival_rate, dividend_rate=1)`: exact
+  compound-geometric CDF for no-interest exponential payment periods.
+- `barrier_dividend_analytic_exponential_interest_force(...)`: convenience
+  summary returning `BarrierDividendAnalyticResult`.
+
+Simulation functions:
+
+- `simulate_barrier_dividend_path(claim_distribution, initial_capital,
+  premium_rate, claim_arrival_rate, barrier, interest_force=0, horizon=inf,
+  max_claims=1000000, seed=None)`: one reflected-barrier reserve path with
+  cumulative dividends.
+- `estimate_barrier_dividends(...)`: Monte Carlo totals and ruin times,
+  returned as `BarrierDividendEstimate`.
+
+Minimal example:
+
+```python
+import numpy as np
+from matplotlib import pyplot as plt
+from ruin_theory import (
+    barrier_dividend_analytic_exponential_interest_force,
+    deterministic,
+    estimate_barrier_dividends,
+    plot_barrier_comparison,
+    plot_barrier_dividend_distribution,
+    plot_barrier_dividend_path,
+    plot_barrier_ruin_time_distribution,
+    simulate_barrier_dividend_path,
+)
+
+analytic = barrier_dividend_analytic_exponential_interest_force(
+    initial_capital=1.0,
+    barrier=3.0,
+    premium_rate=1.2,
+    claim_arrival_rate=0.7,
+    claim_rate=1.4,
+    interest_force=0.08,
+)
+print(analytic.expected_dividends)
+print(analytic.loisel_expected_dividends)
+
+path = simulate_barrier_dividend_path(
+    deterministic(2.0),
+    initial_capital=1.0,
+    premium_rate=1.0,
+    claim_arrival_rate=1.0,
+    barrier=1.0,
+    seed=123,
+)
+estimate = estimate_barrier_dividends(
+    deterministic(2.0),
+    initial_capital=1.0,
+    premium_rate=1.0,
+    claim_arrival_rate=1.0,
+    barrier=1.0,
+    n_simulations=1000,
+    seed=123,
+)
+
+fig, axes = plt.subplots(2, 2)
+plot_barrier_dividend_path(path, ax=axes[0, 0])
+plot_barrier_dividend_distribution(estimate.total_dividends, ax=axes[0, 1])
+plot_barrier_ruin_time_distribution(estimate.ruin_times, ax=axes[1, 0])
+
+barriers = np.array([1.0, 2.0, 3.0])
+expected = [
+    barrier_dividend_analytic_exponential_interest_force(
+        initial_capital=1.0,
+        barrier=float(level),
+        premium_rate=1.2,
+        claim_arrival_rate=0.7,
+        claim_rate=1.4,
+        interest_force=0.08,
+    ).expected_dividends
+    for level in barriers
+]
+plot_barrier_comparison(barriers, expected, ax=axes[1, 1])
+```
+
 ## Gerber-Shiu Diagnostics
 
 The Gerber-Shiu diagnostic layer estimates the finite-horizon discounted
@@ -1262,6 +1373,14 @@ Available diagnostics:
 - `plot_win_first_sensitivity(parameter_values, probabilities,
   parameter_name="parameter", ax=None, label=None)`: one-parameter sensitivity
   plot for interest, claim intensity, premium rate or any other scalar input.
+- `plot_barrier_dividend_path(path, ax=None, show_dividends=True)`: reserve
+  path with barrier, ruin marker and optional cumulative-dividend axis.
+- `plot_barrier_dividend_distribution(dividends, ax=None, bins=30,
+  density=False)`: empirical cumulative-dividend histogram.
+- `plot_barrier_ruin_time_distribution(ruin_times, ax=None, bins=30)`:
+  histogram of finite ruin times from barrier simulations.
+- `plot_barrier_comparison(barriers, expected_dividends, ax=None, label=None)`:
+  expected-dividend comparison across barrier levels.
 - `plot_integer_byclaim_path(path, ax=None, show_ruin=True)`: discrete
   INAR/BINAR reserve trajectory.
 - `plot_integer_byclaim_counts(path, ax=None, kind="byclaim")`: primary or
@@ -1367,6 +1486,9 @@ Implemented now:
   homogeneous finite-time ruin formulas for arbitrary increasing boundaries.
 - Constant-interest exponential ruin probabilities, double-barrier win-first
   quotients, maximum-before-default hazards and sensitivity plots.
+- Horizontal dividend-barrier hitting probabilities, continuation
+  probabilities, renewal/geometric cumulative dividend formulas, reflected
+  path simulation and comparison plots.
 - Phase-type severity distributions and exact Cramer-Lundberg ultimate ruin
   probabilities for phase-type primary claims.
 - Loss moments, coverage transformations and lattice discretization.

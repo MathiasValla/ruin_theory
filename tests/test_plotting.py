@@ -11,6 +11,10 @@ matplotlib.use("Agg")
 from matplotlib import pyplot as plt
 
 from ruin_theory.plotting import (
+    plot_barrier_comparison,
+    plot_barrier_dividend_distribution,
+    plot_barrier_dividend_path,
+    plot_barrier_ruin_time_distribution,
     plot_integer_byclaim_counts,
     plot_integer_byclaim_path,
     plot_maximum_before_default_hazard,
@@ -47,6 +51,7 @@ from ruin_theory import (
     finite_time_lundberg_bounds,
     gerber_shiu_from_paths,
     simulate_binar_byclaim_path,
+    simulate_barrier_dividend_path,
     simulate_inar_byclaim_path,
 )
 from ruin_theory.prevention import optimize_periodic_prevention_calendar
@@ -196,6 +201,42 @@ def test_plot_win_first_surface_hazard_and_sensitivity():
         plot_maximum_before_default_hazard([0.0], [-0.1])
     with pytest.raises(ValueError, match=r"\[0, 1\]"):
         plot_win_first_sensitivity([1.0], [1.2])
+
+
+def test_plot_barrier_dividend_diagnostics():
+    path = simulate_barrier_dividend_path(
+        deterministic(2.0),
+        initial_capital=1.0,
+        premium_rate=1.0,
+        claim_arrival_rate=1.0,
+        barrier=1.0,
+        seed=123,
+    )
+
+    fig, axes = plt.subplots(2, 2)
+    try:
+        path_axis = plot_barrier_dividend_path(path, ax=axes[0, 0])
+        dividend_axis = plot_barrier_dividend_distribution([0.0, 1.0, 2.0], ax=axes[0, 1])
+        ruin_axis = plot_barrier_ruin_time_distribution([1.0, 2.0, np.inf], ax=axes[1, 0])
+        comparison_axis = plot_barrier_comparison(
+            [1.0, 2.0, 3.0],
+            [0.5, 0.8, 0.7],
+            ax=axes[1, 1],
+        )
+
+        assert path_axis is axes[0, 0]
+        assert dividend_axis.get_xlabel() == "cumulative dividends"
+        assert ruin_axis.get_title() == "Dividend-barrier ruin times"
+        assert comparison_axis.get_ylabel() == "expected dividends"
+    finally:
+        plt.close(fig)
+
+    with pytest.raises(TypeError, match="BarrierDividendPath"):
+        plot_barrier_dividend_path(object())
+    with pytest.raises(ValueError, match="non-negative"):
+        plot_barrier_dividend_distribution([-1.0])
+    with pytest.raises(ValueError, match="positive"):
+        plot_barrier_comparison([0.0], [1.0])
 
 
 def test_plot_terminal_reserve_distribution_marks_zero_and_quantiles():

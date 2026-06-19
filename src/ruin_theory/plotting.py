@@ -23,6 +23,7 @@ from .finite_discrete_time import (
     FiniteTimeLundbergBoundResult,
     distribution_cdf,
 )
+from .dividends import BarrierDividendPath
 from .integer_byclaims import IntegerByClaimPath
 from .prevention import PeriodicPreventionResult
 from .results import GerberShiuResult, RuinEstimate, SimulationPath
@@ -726,6 +727,117 @@ def plot_win_first_sensitivity(
     axis.set_ylabel("win-first probability")
     axis.set_ylim(0.0, 1.0)
     axis.set_title("Win-first sensitivity")
+    if label:
+        axis.legend()
+    return axis
+
+
+def plot_barrier_dividend_path(
+    path: BarrierDividendPath,
+    *,
+    ax: Axes | None = None,
+    show_dividends: bool = True,
+) -> Axes:
+    """Plot a reserve path controlled by a horizontal dividend barrier."""
+
+    if not isinstance(path, BarrierDividendPath):
+        raise TypeError("path must be a BarrierDividendPath")
+    axis = _axis(ax)
+    axis.step(path.times, path.reserves, where="post", color="#1f77b4", linewidth=1.8)
+    axis.axhline(path.barrier, color="#0b6e4f", linewidth=1.2, linestyle="--", label="barrier")
+    axis.axhline(0.0, color="#222222", linewidth=1.0, linestyle=":")
+    if path.ruin_time is not None:
+        axis.axvline(path.ruin_time, color="#b00020", linewidth=1.2, linestyle=":")
+    if show_dividends:
+        twin = axis.twinx()
+        twin.step(
+            path.dividend_times,
+            path.cumulative_dividends,
+            where="post",
+            color="#9467bd",
+            alpha=0.8,
+            linewidth=1.4,
+        )
+        twin.set_ylabel("cumulative dividends")
+    axis.set_xlabel("time")
+    axis.set_ylabel("reserve")
+    axis.set_title("Dividend-barrier reserve path")
+    axis.legend(loc="best")
+    return axis
+
+
+def plot_barrier_dividend_distribution(
+    dividends: ArrayLike,
+    *,
+    ax: Axes | None = None,
+    bins: int = 30,
+    density: bool = False,
+) -> Axes:
+    """Plot the empirical distribution of cumulative barrier dividends."""
+
+    values = _as_1d_float(dividends, "dividends")
+    if np.any(values < 0.0):
+        raise ValueError("dividends must be non-negative")
+    if bins <= 0:
+        raise ValueError("bins must be positive")
+    axis = _axis(ax)
+    axis.hist(values, bins=bins, density=density, color="#4c78a8", alpha=0.82)
+    axis.set_xlabel("cumulative dividends")
+    axis.set_ylabel("density" if density else "frequency")
+    axis.set_title("Barrier dividend distribution")
+    return axis
+
+
+def plot_barrier_ruin_time_distribution(
+    ruin_times: ArrayLike,
+    *,
+    ax: Axes | None = None,
+    bins: int = 30,
+) -> Axes:
+    """Plot finite ruin times from dividend-barrier simulations."""
+
+    times = np.asarray(ruin_times, dtype=float)
+    if times.ndim != 1 or times.size == 0:
+        raise ValueError("ruin_times must be a non-empty one-dimensional array")
+    if np.any(np.isnan(times)) or np.any(times < 0.0):
+        raise ValueError("ruin_times must contain non-negative values or infinity")
+    finite = times[np.isfinite(times)]
+    if bins <= 0:
+        raise ValueError("bins must be positive")
+    axis = _axis(ax)
+    if finite.size:
+        axis.hist(finite, bins=bins, color="#b00020", alpha=0.72)
+    else:
+        axis.text(0.5, 0.5, "no ruin observed", ha="center", va="center", transform=axis.transAxes)
+        axis.set_yticks([])
+    axis.set_xlabel("time to ruin")
+    axis.set_ylabel("frequency")
+    axis.set_title("Dividend-barrier ruin times")
+    return axis
+
+
+def plot_barrier_comparison(
+    barriers: ArrayLike,
+    expected_dividends: ArrayLike,
+    *,
+    ax: Axes | None = None,
+    label: str | None = None,
+) -> Axes:
+    """Compare expected cumulative dividends across barrier levels."""
+
+    levels = _as_1d_float(barriers, "barriers")
+    values = _as_1d_float(expected_dividends, "expected_dividends")
+    if levels.shape != values.shape:
+        raise ValueError("expected_dividends must match barriers shape")
+    if np.any(levels <= 0.0):
+        raise ValueError("barriers must be positive")
+    if np.any(values < 0.0):
+        raise ValueError("expected_dividends must be non-negative")
+    axis = _axis(ax)
+    axis.plot(levels, values, color="#0b6e4f", linewidth=2.0, marker="o", label=label)
+    axis.set_xlabel("barrier")
+    axis.set_ylabel("expected dividends")
+    axis.set_title("Dividend-barrier comparison")
     if label:
         axis.legend()
     return axis
