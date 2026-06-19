@@ -760,6 +760,20 @@ Available functions:
   Seal/Takacs formula, `"takacs"` for the zero-initial-capital Takacs formula,
   `"picard-lefevre"` for the original Picard-Lefevre pseudo-probability
   formula, and `"inventory"` for the direct inventory-date recursion.
+- `finite_time_ruin_discrete_inventory(claim_pmf, inventory_times,
+  retained_counts, claim_arrival_rate=None, arrival_means=None)`: exact
+  Rulliere-Loisel inventory recursion. `retained_counts[i]` is the number of
+  aggregate-claim lattice states retained as safe at `inventory_times[i]`.
+  Provide either one homogeneous `claim_arrival_rate` or interval-specific
+  non-homogeneous Poisson means `arrival_means`.
+- `finite_time_ruin_discrete_boundary(claim_pmf, inventory_times,
+  boundary_values, claim_arrival_rate=None, arrival_means=None,
+  convention="negative", boundary_kind="value")`: exact finite-time ruin for
+  an increasing deterministic boundary `h(t)`. `convention="negative"` means
+  ruin occurs when reserve is strictly negative, while
+  `convention="nonpositive"` treats zero reserve as ruin. Use
+  `boundary_kind="crossing"` when `inventory_times` are inverse crossing dates
+  `v_n`, as in Picard-Lefevre and Rulliere-Loisel formulas.
 - `finite_time_discrete_computation_set(initial_capital, premium_units,
   method="seal")`: returns the `(tau, j)` points used by the selected formula,
   for reproducing Picard-Lefevre vs Seal/Takacs computation-set figures.
@@ -960,8 +974,9 @@ Available diagnostics:
 - `plot_gerber_shiu_scatter(result, ax=None, alpha=0.7)`: surplus/deficit
   scatter plot colored by ruin time.
 - `plot_finite_time_discrete_survival(result, ax=None, label=None)`: exact
-  survival curve at inventory dates from a `FiniteTimeDiscreteRuinResult`
-  produced with `method="inventory"`.
+  survival curve at inventory dates from an inventory-style finite-time result.
+- `plot_finite_time_discrete_boundary(result, ax=None, label=None)`: plot the
+  deterministic boundary values stored in a `FiniteTimeDiscreteBoundaryResult`.
 - `plot_finite_time_discrete_computation_set(initial_capital, premium_units,
   method="seal", ax=None)`: computation-set scatter plot for Picard-Lefevre,
   Seal/Takacs or inventory formulas.
@@ -1058,6 +1073,9 @@ Implemented now:
   primary claims.
 - Exact finite-time ruin probabilities for integer-valued claim sizes using
   Seal/Takacs, Picard-Lefevre and direct inventory-recursion formulas.
+- Exact finite-time inventory recursions for increasing deterministic
+  boundaries, inverse crossing dates and interval-specific non-homogeneous
+  Poisson arrival means.
 - Phase-type severity distributions and exact Cramer-Lundberg ultimate ruin
   probabilities for phase-type primary claims.
 - Loss moments, coverage transformations and lattice discretization.
@@ -1082,9 +1100,8 @@ Planned extensions:
 - Matrix-valued/closed-form Gerber-Shiu solvers beyond simulation diagnostics.
 - Finite-time exact discrete extensions from Picard-Lefevre,
   Rulliere-Loisel, Lefevre-Loisel and Castaner et al.:
-  - General boundary and non-constant premium functions `h(t)`, with
-    strict/non-strict ruin conventions, inverse boundary dates `v_n`, and
-    exact survival/ruin recursions by aggregate level and by inventory date.
+  - Full non-constant premium-function builders `h(t)` with automatic inverse
+    boundary-date extraction beyond the current explicit-inventory API.
   - Generalized Appell and Sheffer coefficient engines for arbitrary
     increasing boundaries, including base polynomials, coefficient triangular
     systems and Picard-Lefevre polynomial diagnostics.

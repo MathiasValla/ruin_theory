@@ -5,6 +5,8 @@ from __future__ import annotations
 import numpy as np
 
 from ruin_theory import (
+    finite_time_ruin_discrete_boundary,
+    plot_finite_time_discrete_boundary,
     finite_time_ruin_discrete,
     plot_finite_time_discrete_computation_set,
     plot_finite_time_discrete_survival,
@@ -44,6 +46,17 @@ def main() -> None:
     print("\nInventory dates:", np.round(result.inventory_times, 4))
     print("Survival at inventory dates:", np.round(result.survival_probabilities, 6))
 
+    boundary_result = finite_time_ruin_discrete_boundary(
+        [0.0, 0.25, 0.50, 0.25],
+        inventory_times=result.inventory_times,
+        boundary_values=4.0 + 1.3 * result.inventory_times,
+        claim_arrival_rate=0.8,
+        convention="negative",
+        boundary_kind="crossing",
+        return_result=True,
+    )
+    print("Boundary recursion psi(4, 4.2)=", f"{boundary_result.ruin_probability:.12g}")
+
     non_integer = finite_time_ruin_discrete(
         deterministic_unit_claim,
         initial_capital=0.5,
@@ -58,10 +71,11 @@ def main() -> None:
         from matplotlib import pyplot as plt
     except ImportError:
         return
-    fig, axes = plt.subplots(2, 2, figsize=(10, 7), constrained_layout=True)
+    fig, axes = plt.subplots(2, 3, figsize=(13, 7), constrained_layout=True)
     plot_ruin_curve(reserves, ruin, ax=axes[0, 0], label="Seal/Takacs")
     axes[0, 0].set_title("Exact finite-time lattice ruin")
     plot_finite_time_discrete_survival(result, ax=axes[0, 1], label="inventory")
+    plot_finite_time_discrete_boundary(boundary_result, ax=axes[0, 2], label="h(t)")
     plot_finite_time_discrete_computation_set(
         initial_capital=5,
         premium_units=10,
@@ -74,6 +88,7 @@ def main() -> None:
         method="seal",
         ax=axes[1, 1],
     )
+    axes[1, 2].axis("off")
     if plt.get_backend().lower() == "agg":
         plt.close(fig)
     else:

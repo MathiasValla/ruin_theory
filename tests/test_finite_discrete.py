@@ -4,8 +4,11 @@ import numpy as np
 import pytest
 
 from ruin_theory import (
+    FiniteTimeDiscreteBoundaryResult,
     FiniteTimeDiscreteRuinResult,
     compound_poisson_lattice_pmf,
+    finite_time_ruin_discrete_boundary,
+    finite_time_ruin_discrete_inventory,
     finite_time_ruin_discrete,
 )
 
@@ -103,6 +106,78 @@ def test_inventory_formula_matches_hand_check_for_size_two_claims():
     assert result.ruin_probability == pytest.approx(1.0 - expected_survival)
 
 
+def test_boundary_inventory_reproduces_linear_inventory_formula():
+    claim_pmf = [0.0, 0.25, 0.5, 0.25]
+    linear = finite_time_ruin_discrete(
+        claim_pmf,
+        initial_capital=4,
+        premium_rate=1.3,
+        claim_arrival_rate=0.8,
+        horizon=4.2,
+        method="inventory",
+        return_result=True,
+    )
+    boundary = finite_time_ruin_discrete_boundary(
+        claim_pmf,
+        inventory_times=linear.inventory_times,
+        boundary_values=4.0 + 1.3 * linear.inventory_times,
+        claim_arrival_rate=0.8,
+        convention="negative",
+        boundary_kind="crossing",
+        return_result=True,
+    )
+
+    assert isinstance(boundary, FiniteTimeDiscreteBoundaryResult)
+    assert boundary.ruin_probability == pytest.approx(linear.ruin_probability)
+    np.testing.assert_allclose(boundary.survival_probabilities, linear.survival_probabilities)
+
+
+def test_boundary_conventions_handle_ruin_at_zero():
+    # Constant boundary h(t)=1 over [0,1] with unit claims. For negative ruin,
+    # zero reserve is allowed, so at most one claim can occur. For non-positive
+    # ruin, zero reserve is ruin, so no claim can occur.
+    negative = finite_time_ruin_discrete_boundary(
+        [0.0, 1.0],
+        inventory_times=[1.0],
+        boundary_values=[1.0],
+        claim_arrival_rate=1.0,
+        convention="negative",
+    )
+    nonpositive = finite_time_ruin_discrete_boundary(
+        [0.0, 1.0],
+        inventory_times=[1.0],
+        boundary_values=[1.0],
+        claim_arrival_rate=1.0,
+        convention="nonpositive",
+    )
+
+    assert negative == pytest.approx(1.0 - 2.0 * math.exp(-1.0))
+    assert nonpositive == pytest.approx(1.0 - math.exp(-1.0))
+
+
+def test_inventory_recursion_accepts_interval_arrival_means():
+    result = finite_time_ruin_discrete_inventory(
+        [0.0, 1.0],
+        inventory_times=[0.4, 1.0],
+        retained_counts=[1, 2],
+        arrival_means=[0.4, 0.6],
+        return_result=True,
+    )
+    linear = finite_time_ruin_discrete(
+        [0.0, 1.0],
+        initial_capital=0.6,
+        premium_rate=1.0,
+        claim_arrival_rate=1.0,
+        horizon=1.0,
+        method="inventory",
+        return_result=True,
+    )
+
+    assert result.claim_arrival_rate is None
+    assert result.survival_probability == pytest.approx(linear.survival_probability)
+    np.testing.assert_allclose(result.arrival_means, [0.4, 0.6])
+
+
 def test_takacs_zero_initial_capital_formula_is_available():
     ruin = finite_time_ruin_discrete(
         [0.0, 0.0, 1.0],
@@ -152,4 +227,26 @@ def test_finite_discrete_formulas_validate_inputs():
             claim_arrival_rate=1.0,
             horizon=1.0,
             method="takacs",
+        )
+    with pytest.raises(ValueError, match="exactly one"):
+        finite_time_ruin_discrete_inventory(
+            [0.0, 1.0],
+            inventory_times=[1.0],
+            retained_counts=[1],
+            claim_arrival_rate=1.0,
+            arrival_means=[1.0],
+        )
+    with pytest.raises(ValueError, match="non-decreasing"):
+        finite_time_ruin_discrete_boundary(
+            [0.0, 1.0],
+            inventory_times=[1.0, 2.0],
+            boundary_values=[2.0, 1.0],
+            claim_arrival_rate=1.0,
+        )
+    with pytest.raises(ValueError, match="match inventory_times"):
+        finite_time_ruin_discrete_inventory(
+            [0.0, 1.0],
+            inventory_times=[1.0],
+            retained_counts=[1, 2],
+            claim_arrival_rate=1.0,
         )

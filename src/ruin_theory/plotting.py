@@ -10,6 +10,7 @@ from matplotlib.axes import Axes
 from numpy.typing import ArrayLike
 
 from .finite_discrete import (
+    FiniteTimeDiscreteBoundaryResult,
     FiniteTimeDiscreteMethod,
     FiniteTimeDiscreteRuinResult,
     finite_time_discrete_computation_set,
@@ -236,15 +237,15 @@ def plot_ruin_time_histogram(
 
 
 def plot_finite_time_discrete_survival(
-    result: FiniteTimeDiscreteRuinResult,
+    result: FiniteTimeDiscreteRuinResult | FiniteTimeDiscreteBoundaryResult,
     *,
     ax: Axes | None = None,
     label: str | None = None,
 ) -> Axes:
     """Plot exact survival probabilities at finite-time inventory dates."""
 
-    if not isinstance(result, FiniteTimeDiscreteRuinResult):
-        raise TypeError("result must be a FiniteTimeDiscreteRuinResult")
+    if not isinstance(result, (FiniteTimeDiscreteRuinResult, FiniteTimeDiscreteBoundaryResult)):
+        raise TypeError("result must be a finite-time discrete result")
     if result.inventory_times.size == 0 or result.survival_probabilities.size == 0:
         raise ValueError("result does not contain inventory recursion diagnostics")
     if result.inventory_times.shape != result.survival_probabilities.shape:
@@ -264,6 +265,39 @@ def plot_finite_time_discrete_survival(
     axis.set_ylabel("non-ruin probability")
     axis.set_ylim(0.0, 1.0)
     axis.set_title("Finite-time lattice survival")
+    if label:
+        axis.legend()
+    return axis
+
+
+def plot_finite_time_discrete_boundary(
+    result: FiniteTimeDiscreteBoundaryResult,
+    *,
+    ax: Axes | None = None,
+    label: str | None = None,
+) -> Axes:
+    """Plot a deterministic finite-time lattice boundary."""
+
+    if not isinstance(result, FiniteTimeDiscreteBoundaryResult):
+        raise TypeError("result must be a FiniteTimeDiscreteBoundaryResult")
+    if result.inventory_times.shape != result.boundary_values.shape:
+        raise ValueError("inventory_times and boundary_values must match")
+    if np.any(~np.isfinite(result.boundary_values)):
+        raise ValueError("result does not contain explicit boundary values")
+
+    axis = _axis(ax)
+    axis.step(
+        result.inventory_times,
+        result.boundary_values,
+        where="post",
+        color="#8c1d2d",
+        linewidth=2.0,
+        label=label,
+    )
+    axis.scatter(result.inventory_times, result.boundary_values, color="#8c1d2d", s=28)
+    axis.set_xlabel("time")
+    axis.set_ylabel("boundary h(t)")
+    axis.set_title("Finite-time lattice boundary")
     if label:
         axis.legend()
     return axis

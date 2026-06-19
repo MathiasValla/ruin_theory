@@ -14,6 +14,7 @@ from ruin_theory.plotting import (
     plot_integer_byclaim_counts,
     plot_integer_byclaim_path,
     plot_deficit_at_ruin,
+    plot_finite_time_discrete_boundary,
     plot_finite_time_discrete_computation_set,
     plot_finite_time_discrete_survival,
     plot_gerber_shiu_scatter,
@@ -30,6 +31,8 @@ from ruin_theory import (
     BINARByClaimModel,
     INARByClaimModel,
     deterministic,
+    finite_time_ruin_discrete_boundary,
+    finite_time_ruin_discrete_inventory,
     finite_time_ruin_discrete,
     gerber_shiu_from_paths,
     simulate_binar_byclaim_path,
@@ -234,6 +237,38 @@ def test_plot_finite_time_discrete_diagnostics():
                 return_result=True,
             )
         )
+
+
+def test_plot_finite_time_boundary_diagnostics():
+    result = finite_time_ruin_discrete_boundary(
+        [0.0, 1.0],
+        inventory_times=[0.5, 1.0],
+        boundary_values=[1.0, 1.5],
+        claim_arrival_rate=1.0,
+        return_result=True,
+    )
+
+    fig, axes = plt.subplots(1, 2)
+    try:
+        survival_axis = plot_finite_time_discrete_survival(result, ax=axes[0])
+        boundary_axis = plot_finite_time_discrete_boundary(result, ax=axes[1], label="h")
+
+        assert survival_axis.get_ylabel() == "non-ruin probability"
+        assert boundary_axis.get_ylabel() == "boundary h(t)"
+        assert boundary_axis.get_legend() is not None
+        assert len(boundary_axis.lines) == 1
+    finally:
+        plt.close(fig)
+
+    implicit = finite_time_ruin_discrete_inventory(
+        [0.0, 1.0],
+        inventory_times=[1.0],
+        retained_counts=[1],
+        claim_arrival_rate=1.0,
+        return_result=True,
+    )
+    with pytest.raises(ValueError, match="explicit boundary"):
+        plot_finite_time_discrete_boundary(implicit)
 
 
 def test_plot_gerber_shiu_diagnostics():

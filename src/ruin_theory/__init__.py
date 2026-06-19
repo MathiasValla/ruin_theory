@@ -41,9 +41,12 @@ from .formulas import (
     ultimate_ruin_phase_type,
 )
 from .finite_discrete import (
+    FiniteTimeDiscreteBoundaryResult,
     FiniteTimeDiscreteRuinResult,
     compound_poisson_lattice_pmf,
     finite_time_discrete_computation_set,
+    finite_time_ruin_discrete_boundary,
+    finite_time_ruin_discrete_inventory,
     finite_time_ruin_discrete,
 )
 from .gerber_shiu import estimate_gerber_shiu, gerber_shiu_from_paths
@@ -98,6 +101,7 @@ from .plotting import (
     plot_integer_byclaim_counts,
     plot_integer_byclaim_path,
     plot_deficit_at_ruin,
+    plot_finite_time_discrete_boundary,
     plot_finite_time_discrete_computation_set,
     plot_finite_time_discrete_survival,
     plot_gerber_shiu_scatter,
@@ -123,6 +127,7 @@ __all__ = [
     "CramerLundbergProcess",
     "DiscretizedDistribution",
     "ExpectedSurplusPreventionResult",
+    "FiniteTimeDiscreteBoundaryResult",
     "FiniteTimeDiscreteRuinResult",
     "FrequencyModel",
     "GerberShiuResult",
@@ -159,6 +164,8 @@ __all__ = [
     "exponential",
     "finite_time_ruin_exponential",
     "finite_time_ruin_discrete",
+    "finite_time_ruin_discrete_boundary",
+    "finite_time_ruin_discrete_inventory",
     "finite_time_discrete_computation_set",
     "gamma",
     "gerber_shiu_from_paths",
@@ -187,6 +194,7 @@ __all__ = [
     "plot_integer_byclaim_counts",
     "plot_integer_byclaim_path",
     "plot_deficit_at_ruin",
+    "plot_finite_time_discrete_boundary",
     "plot_finite_time_discrete_computation_set",
     "plot_finite_time_discrete_survival",
     "plot_gerber_shiu_scatter",
