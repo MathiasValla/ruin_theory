@@ -7,6 +7,7 @@ import numpy as np
 from ruin_theory import (
     finite_time_ruin_discrete_appell,
     finite_time_ruin_discrete_boundary_function,
+    finite_time_ruin_discrete_nonhomogeneous_boundary_function,
     plot_finite_time_appell_coefficients,
     plot_finite_time_discrete_boundary,
     finite_time_ruin_discrete,
@@ -67,6 +68,17 @@ def main() -> None:
     )
     print("Appell formula psi(4, 4.2)=", f"{appell_result.ruin_probability:.12g}")
 
+    nonhomogeneous_result = finite_time_ruin_discrete_nonhomogeneous_boundary_function(
+        lambda start, end: [0.0, end * end - start * start],
+        boundary=lambda time: 0.6 + time,
+        horizon=1.0,
+        return_result=True,
+    )
+    print(
+        "Non-stationary unit-claim psi(0.6, 1)=",
+        f"{nonhomogeneous_result.ruin_probability:.12g}",
+    )
+
     non_integer = finite_time_ruin_discrete(
         deterministic_unit_claim,
         initial_capital=0.5,
@@ -81,11 +93,12 @@ def main() -> None:
         from matplotlib import pyplot as plt
     except ImportError:
         return
-    fig, axes = plt.subplots(2, 3, figsize=(13, 7), constrained_layout=True)
+    fig, axes = plt.subplots(2, 4, figsize=(16, 7), constrained_layout=True)
     plot_ruin_curve(reserves, ruin, ax=axes[0, 0], label="Seal/Takacs")
     axes[0, 0].set_title("Exact finite-time lattice ruin")
     plot_finite_time_discrete_survival(result, ax=axes[0, 1], label="inventory")
     plot_finite_time_discrete_boundary(boundary_result, ax=axes[0, 2], label="h(t)")
+    plot_finite_time_discrete_survival(nonhomogeneous_result, ax=axes[0, 3], label="non-stationary")
     plot_finite_time_discrete_computation_set(
         initial_capital=5,
         premium_units=10,
@@ -98,7 +111,8 @@ def main() -> None:
         method="seal",
         ax=axes[1, 1],
     )
-    plot_finite_time_appell_coefficients(appell_result, ax=axes[1, 2])
+    plot_finite_time_discrete_boundary(nonhomogeneous_result, ax=axes[1, 2], label="h(t)")
+    plot_finite_time_appell_coefficients(appell_result, ax=axes[1, 3])
     if plt.get_backend().lower() == "agg":
         plt.close(fig)
     else:

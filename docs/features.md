@@ -782,6 +782,23 @@ Available functions:
   convention="negative")`: exact finite-time ruin directly from a boundary
   function. Provide either a homogeneous arrival rate or a cumulative
   non-homogeneous Poisson mean `Lambda(t)`.
+- `nonhomogeneous_compound_poisson_lattice_pmf(claim_size_intensities,
+  max_aggregate)`: exact aggregate-increment masses for independent Poisson
+  claim counts by size. `claim_size_intensities[k]` is the integrated intensity
+  `Lambda_k(a, b)` of claims of size `k` on the interval; index 0 is ignored.
+- `finite_time_ruin_discrete_nonhomogeneous_inventory(claim_size_intensities,
+  inventory_times, retained_counts)`: exact Rulliere-Loisel/Lefevre-Loisel
+  inventory recursion when each interval has its own integrated claim-size
+  intensity vector.
+- `finite_time_ruin_discrete_nonhomogeneous_boundary(claim_size_intensities,
+  inventory_times, boundary_values, convention="negative",
+  boundary_kind="value")`: exact finite-time boundary recursion with
+  interval-specific claim-size intensities.
+- `finite_time_ruin_discrete_nonhomogeneous_boundary_function(
+  claim_size_intensity_integrals, boundary, horizon, convention="negative")`:
+  builds inverse crossing dates and calls
+  `claim_size_intensity_integrals(start, end)` to obtain each interval vector
+  `(Lambda_0(start,end), Lambda_1(start,end), ...)`.
 - `compound_poisson_appell_base(claim_pmf, claim_arrival_rate, time,
   max_degree)`: evaluates the Picard-Lefevre convolution-type base
   polynomials `e_n(t)`.
@@ -880,6 +897,7 @@ from ruin_theory import (
     finite_time_ruin_discrete,
     finite_time_ruin_discrete_appell,
     finite_time_ruin_discrete_boundary_function,
+    finite_time_ruin_discrete_nonhomogeneous_boundary_function,
 )
 
 # Deterministic unit claims: P(W = 1) = 1.
@@ -923,6 +941,15 @@ appell_details = finite_time_ruin_discrete_appell(
     return_result=True,
 )
 print(appell_details.appell_coefficients)
+
+nonstationary = finite_time_ruin_discrete_nonhomogeneous_boundary_function(
+    lambda start, end: [0.0, end * end - start * start],
+    boundary=lambda time: 0.6 + time,
+    horizon=1.0,
+    return_result=True,
+)
+print(nonstationary.claim_size_intensities)
+print(nonstationary.ruin_probability)
 ```
 
 ## Gerber-Shiu Diagnostics
@@ -1017,7 +1044,7 @@ Available diagnostics:
 - `plot_finite_time_discrete_survival(result, ax=None, label=None)`: exact
   survival curve at inventory dates from an inventory-style finite-time result.
 - `plot_finite_time_discrete_boundary(result, ax=None, label=None)`: plot the
-  deterministic boundary values stored in a `FiniteTimeDiscreteBoundaryResult`.
+  deterministic boundary values stored in a boundary-style finite-time result.
 - `plot_finite_time_appell_coefficients(result, ax=None)`: plot the
   generalized-Appell coefficients returned by
   `finite_time_ruin_discrete_appell(..., return_result=True)`.
@@ -1120,6 +1147,9 @@ Implemented now:
 - Exact finite-time inventory recursions for increasing deterministic
   boundaries, automatically generated inverse crossing dates and
   interval-specific or cumulative non-homogeneous Poisson arrival means.
+- Non-stationary compound-Poisson lattice increments with integrated
+  claim-size intensity measures, plus exact finite-horizon inventory and
+  boundary recursions for those increments.
 - Picard-Lefevre generalized-Appell coefficients, base polynomials and exact
   homogeneous finite-time ruin formulas for arbitrary increasing boundaries.
 - Phase-type severity distributions and exact Cramer-Lundberg ultimate ruin
@@ -1148,9 +1178,8 @@ Planned extensions:
   Rulliere-Loisel, Lefevre-Loisel and Castaner et al.:
   - Appell-style extensions for non-stationary claim severities, where the
     homogeneous polynomial convolution structure no longer applies directly.
-  - Non-homogeneous compound-Poisson arrivals with time-varying intensity
-    `lambda(t)` and time-varying severity laws, including aggregate-increment
-    probabilities, exact finite-horizon recursions and computation-set plots.
+  - High-level numerical quadrature builders for continuous `lambda(t)` and
+    `g_k(t)` inputs beyond user-supplied interval integrals `Lambda_k(a,b)`.
   - Dependent and exchangeable claim-severity finite-horizon formulas based on
     joint partial sums and order-statistic tail probabilities, plus
     comonotonic/common-factor dependence examples and sensitivity plots.

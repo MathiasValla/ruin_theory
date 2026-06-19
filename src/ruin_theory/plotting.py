@@ -13,6 +13,7 @@ from .finite_discrete import (
     FiniteTimeDiscreteAppellResult,
     FiniteTimeDiscreteBoundaryResult,
     FiniteTimeDiscreteMethod,
+    FiniteTimeDiscreteNonhomogeneousResult,
     FiniteTimeDiscreteRuinResult,
     finite_time_discrete_computation_set,
 )
@@ -238,14 +239,23 @@ def plot_ruin_time_histogram(
 
 
 def plot_finite_time_discrete_survival(
-    result: FiniteTimeDiscreteRuinResult | FiniteTimeDiscreteBoundaryResult,
+    result: FiniteTimeDiscreteRuinResult
+    | FiniteTimeDiscreteBoundaryResult
+    | FiniteTimeDiscreteNonhomogeneousResult,
     *,
     ax: Axes | None = None,
     label: str | None = None,
 ) -> Axes:
     """Plot exact survival probabilities at finite-time inventory dates."""
 
-    if not isinstance(result, (FiniteTimeDiscreteRuinResult, FiniteTimeDiscreteBoundaryResult)):
+    if not isinstance(
+        result,
+        (
+            FiniteTimeDiscreteRuinResult,
+            FiniteTimeDiscreteBoundaryResult,
+            FiniteTimeDiscreteNonhomogeneousResult,
+        ),
+    ):
         raise TypeError("result must be a finite-time discrete result")
     if result.inventory_times.size == 0 or result.survival_probabilities.size == 0:
         raise ValueError("result does not contain inventory recursion diagnostics")
@@ -272,15 +282,18 @@ def plot_finite_time_discrete_survival(
 
 
 def plot_finite_time_discrete_boundary(
-    result: FiniteTimeDiscreteBoundaryResult,
+    result: FiniteTimeDiscreteBoundaryResult | FiniteTimeDiscreteNonhomogeneousResult,
     *,
     ax: Axes | None = None,
     label: str | None = None,
 ) -> Axes:
     """Plot a deterministic finite-time lattice boundary."""
 
-    if not isinstance(result, FiniteTimeDiscreteBoundaryResult):
-        raise TypeError("result must be a FiniteTimeDiscreteBoundaryResult")
+    if not isinstance(
+        result,
+        (FiniteTimeDiscreteBoundaryResult, FiniteTimeDiscreteNonhomogeneousResult),
+    ):
+        raise TypeError("result must be a finite-time boundary result")
     if result.inventory_times.shape != result.boundary_values.shape:
         raise ValueError("inventory_times and boundary_values must match")
     if np.any(~np.isfinite(result.boundary_values)):

@@ -91,6 +91,28 @@ class FiniteTimeDiscreteAppellResult:
     convention: str
 
 
+@dataclass(frozen=True)
+class FiniteTimeDiscreteNonhomogeneousResult:
+    """Exact finite-time result for non-stationary discrete claim increments."""
+
+    horizon: float
+    claim_size_intensities: np.ndarray
+    survival_probability: float
+    ruin_probability: float
+    inventory_times: np.ndarray
+    retained_counts: np.ndarray
+    boundary_values: np.ndarray
+    survival_probabilities: np.ndarray
+    state_probabilities: np.ndarray
+    convention: str
+
+    @property
+    def ruin_probabilities_by_time(self) -> np.ndarray:
+        """Ruin probabilities at the returned inventory dates."""
+
+        return 1.0 - self.survival_probabilities
+
+
 def _nonnegative_int(value: int, name: str) -> int:
     try:
         result = operator.index(value)
@@ -243,6 +265,50 @@ def _retained_counts(values: ArrayLike, expected_size: int) -> np.ndarray:
     return counts
 
 
+def _claim_size_intensities(values: ArrayLike, name: str = "claim_size_intensities") -> np.ndarray:
+    intensities = np.asarray(values, dtype=float)
+    if intensities.ndim != 1 or intensities.size == 0:
+        raise ValueError(f"{name} must be a non-empty one-dimensional array")
+    if np.any(~np.isfinite(intensities)) or np.any(intensities < 0.0):
+        raise ValueError(f"{name} must contain finite non-negative values")
+    return intensities.copy()
+
+
+def _claim_size_intensity_matrix(values: ArrayLike, expected_size: int) -> np.ndarray:
+    matrix = np.asarray(values, dtype=float)
+    if matrix.ndim != 2 or matrix.shape[0] != expected_size or matrix.shape[1] == 0:
+        raise ValueError("claim_size_intensities must have one row per inventory interval")
+    if np.any(~np.isfinite(matrix)) or np.any(matrix < 0.0):
+        raise ValueError("claim_size_intensities must contain finite non-negative values")
+    return matrix.copy()
+
+
+def _claim_size_intensity_matrix_from_intervals(
+    claim_size_intensity_integrals: Callable[[float, float], ArrayLike],
+    times: np.ndarray,
+) -> np.ndarray:
+    if not callable(claim_size_intensity_integrals):
+        raise TypeError("claim_size_intensity_integrals must be callable")
+
+    rows: list[np.ndarray] = []
+    width = 1
+    previous = 0.0
+    for time in times:
+        current = float(time)
+        row = _claim_size_intensities(
+            claim_size_intensity_integrals(previous, current),
+            "claim_size_intensity_integrals",
+        )
+        rows.append(row)
+        width = max(width, row.size)
+        previous = current
+
+    matrix = np.zeros((len(rows), width), dtype=float)
+    for index, row in enumerate(rows):
+        matrix[index, : row.size] = row
+    return matrix
+
+
 def _arrival_means(
     times: np.ndarray,
     *,
@@ -299,7 +365,29 @@ def _retained_count_from_crossing(boundary_value: float) -> int:
     return _ceil_nonnegative(boundary)
 
 
-def _positive_claim_process(claim_pmf: np.ndarray, claim_arrival_rate: float) -> tuple[np.ndarray, float]:
+def _retained_counts_from_boundary_values(
+    boundaries: np.ndarray,
+    *,
+    convention: str,
+    boundary_kind: str,
+) -> np.ndarray:
+    if boundary_kind == "value":
+        return np.fromiter(
+            (_retained_count_from_boundary(value, convention) for value in boundaries),
+            dtype=int,
+            count=boundaries.size,
+        )
+    return np.fromiter(
+        (_retained_count_from_crossing(value) for value in boundaries),
+        dtype=int,
+        count=boundaries.size,
+    )
+
+
+def _positive_claim_process(
+    claim_pmf: np.ndarray,
+    claim_arrival_rate: float,
+) -> tuple[np.ndarray, float]:
     nonzero_probability = float(np.sum(claim_pmf[1:]))
     if nonzero_probability <= 0.0:
         return claim_pmf.copy(), 0.0
@@ -496,6 +584,23 @@ def compound_poisson_lattice_pmf(
     return _compound_poisson_lattice_pmf(pmf, poisson_mean, max_index)
 
 
+def nonhomogeneous_compound_poisson_lattice_pmf(
+    claim_size_intensities: ArrayLike,
+    *,
+    max_aggregate: int,
+) -> np.ndarray:
+    """Return aggregate masses from integrated claim-size intensities.
+
+    ``claim_size_intensities[k]`` is the integrated intensity of claims of
+    size ``k`` over an interval. Index 0 is ignored because zero-size claims do
+    not change the aggregate claim amount.
+    """
+
+    intensities = _claim_size_intensities(claim_size_intensities)
+    max_index = _nonnegative_int(max_aggregate, "max_aggregate")
+    return _nonhomogeneous_compound_poisson_lattice_pmf(intensities, max_index)
+
+
 def _compound_poisson_lattice_pmf(
     claim_pmf: np.ndarray,
     mean: float,
@@ -513,6 +618,27 @@ def _compound_poisson_lattice_pmf(
         indices = np.arange(1, upper + 1)
         weighted_previous = indices * claim_pmf[1 : upper + 1] * aggregate[j - indices]
         aggregate[j] = mean * float(np.sum(weighted_previous)) / j
+    return aggregate
+
+
+def _nonhomogeneous_compound_poisson_lattice_pmf(
+    claim_size_intensities: np.ndarray,
+    max_aggregate: int,
+) -> np.ndarray:
+    aggregate = np.zeros(max_aggregate + 1, dtype=float)
+    aggregate[0] = math.exp(-float(np.sum(claim_size_intensities[1:])))
+    if max_aggregate == 0:
+        return aggregate
+    support_max = min(claim_size_intensities.size - 1, max_aggregate)
+    for total in range(1, max_aggregate + 1):
+        upper = min(total, support_max)
+        if upper == 0:
+            continue
+        sizes = np.arange(1, upper + 1)
+        aggregate[total] = (
+            float(np.sum(sizes * claim_size_intensities[1 : upper + 1] * aggregate[total - sizes]))
+            / total
+        )
     return aggregate
 
 
@@ -652,15 +778,43 @@ def _inventory_from_counts(
     arrival_means: np.ndarray,
 ) -> tuple[float, np.ndarray, np.ndarray, np.ndarray]:
     max_count = max(int(np.max(retained_counts)) if retained_counts.size else 0, 1)
+    increment_pmfs = np.zeros((arrival_means.size, max_count), dtype=float)
+    for index, mean in enumerate(arrival_means):
+        if math.isclose(float(mean), 0.0, rel_tol=0.0, abs_tol=1e-15):
+            increment_pmfs[index, 0] = 1.0
+        else:
+            increment_pmfs[index] = _compound_poisson_lattice_pmf(
+                claim_pmf,
+                float(mean),
+                max_count - 1,
+            )
+    return _inventory_from_increment_pmfs(
+        inventory_times=inventory_times,
+        retained_counts=retained_counts,
+        increment_pmfs=increment_pmfs,
+    )
+
+
+def _inventory_from_increment_pmfs(
+    *,
+    inventory_times: np.ndarray,
+    retained_counts: np.ndarray,
+    increment_pmfs: np.ndarray,
+) -> tuple[float, np.ndarray, np.ndarray, np.ndarray]:
+    max_count = max(int(np.max(retained_counts)) if retained_counts.size else 0, 1)
     state = np.zeros(max_count, dtype=float)
     state[0] = 1.0
     survivals: list[float] = []
 
-    for retained, mean in zip(retained_counts, arrival_means, strict=True):
-        if math.isclose(float(mean), 0.0, rel_tol=0.0, abs_tol=1e-15):
+    for retained, increment in zip(retained_counts, increment_pmfs, strict=True):
+        if math.isclose(float(increment[0]), 1.0, rel_tol=0.0, abs_tol=1e-15) and np.allclose(
+            increment[1:],
+            0.0,
+            rtol=0.0,
+            atol=1e-15,
+        ):
             convolved = state
         else:
-            increment = _compound_poisson_lattice_pmf(claim_pmf, float(mean), max_count - 1)
             convolved = np.convolve(state, increment)[:max_count]
         next_state = np.zeros_like(state)
         retained = min(int(retained), max_count)
@@ -670,6 +824,45 @@ def _inventory_from_counts(
         survivals.append(float(np.sum(state)))
 
     return float(np.sum(state)), inventory_times.copy(), np.asarray(survivals), state.copy()
+
+
+def _nonhomogeneous_result_from_counts(
+    claim_size_intensities: np.ndarray,
+    *,
+    inventory_times: np.ndarray,
+    retained_counts: np.ndarray,
+    boundary_values: np.ndarray,
+    convention: str,
+    return_result: bool,
+) -> float | FiniteTimeDiscreteNonhomogeneousResult:
+    max_count = max(int(np.max(retained_counts)) if retained_counts.size else 0, 1)
+    increment_pmfs = np.vstack(
+        [
+            _nonhomogeneous_compound_poisson_lattice_pmf(row, max_count - 1)
+            for row in claim_size_intensities
+        ],
+    )
+    survival, times, survival_grid, state = _inventory_from_increment_pmfs(
+        inventory_times=inventory_times,
+        retained_counts=retained_counts,
+        increment_pmfs=increment_pmfs,
+    )
+    survival = float(np.clip(survival, 0.0, 1.0))
+    ruin = float(np.clip(1.0 - survival, 0.0, 1.0))
+    if not return_result:
+        return ruin
+    return FiniteTimeDiscreteNonhomogeneousResult(
+        horizon=float(times[-1]),
+        claim_size_intensities=claim_size_intensities,
+        survival_probability=survival,
+        ruin_probability=ruin,
+        inventory_times=times,
+        retained_counts=retained_counts,
+        boundary_values=boundary_values,
+        survival_probabilities=survival_grid,
+        state_probabilities=state,
+        convention=convention,
+    )
 
 
 def finite_time_ruin_discrete_inventory(
@@ -759,18 +952,11 @@ def finite_time_ruin_discrete_boundary(
         raise ValueError("boundary_values must be non-decreasing")
     selected_convention = _boundary_convention(convention)
     selected_kind = _boundary_kind(boundary_kind)
-    if selected_kind == "value":
-        counts = np.fromiter(
-            (_retained_count_from_boundary(value, selected_convention) for value in boundaries),
-            dtype=int,
-            count=boundaries.size,
-        )
-    else:
-        counts = np.fromiter(
-            (_retained_count_from_crossing(value) for value in boundaries),
-            dtype=int,
-            count=boundaries.size,
-        )
+    counts = _retained_counts_from_boundary_values(
+        boundaries,
+        convention=selected_convention,
+        boundary_kind=selected_kind,
+    )
     rate, means = _arrival_means(
         times,
         claim_arrival_rate=claim_arrival_rate,
@@ -858,6 +1044,135 @@ def finite_time_ruin_discrete_boundary_function(
         boundary_values=grid.boundary_values,
         claim_arrival_rate=claim_arrival_rate,
         arrival_means=arrival_means,
+        convention=selected_convention,
+        boundary_kind="crossing",
+        return_result=return_result,
+    )
+
+
+def finite_time_ruin_discrete_nonhomogeneous_inventory(
+    claim_size_intensities: ArrayLike,
+    *,
+    inventory_times: ArrayLike,
+    retained_counts: ArrayLike,
+    return_result: bool = False,
+) -> float | FiniteTimeDiscreteNonhomogeneousResult:
+    """Exact finite-time recursion with interval claim-size intensity measures.
+
+    ``claim_size_intensities[i, k]`` is the integrated Poisson intensity of
+    claims of size ``k`` over the interval ending at ``inventory_times[i]``.
+    Index 0 is ignored because zero-size claims do not affect aggregate claims.
+    """
+
+    times = _inventory_times(inventory_times)
+    counts = _retained_counts(retained_counts, times.size)
+    matrix = _claim_size_intensity_matrix(claim_size_intensities, times.size)
+    return _nonhomogeneous_result_from_counts(
+        matrix,
+        inventory_times=times,
+        retained_counts=counts,
+        boundary_values=np.full(times.size, np.nan),
+        convention=(
+            "non-stationary inventory recursion; retained_counts[k] keeps "
+            "aggregate states 0, ..., retained_counts[k] - 1"
+        ),
+        return_result=return_result,
+    )
+
+
+def finite_time_ruin_discrete_nonhomogeneous_boundary(
+    claim_size_intensities: ArrayLike,
+    *,
+    inventory_times: ArrayLike,
+    boundary_values: ArrayLike,
+    convention: BoundaryRuinConvention = "negative",
+    boundary_kind: BoundaryKind = "value",
+    return_result: bool = False,
+) -> float | FiniteTimeDiscreteNonhomogeneousResult:
+    """Exact finite-time ruin for a boundary and non-stationary claim sizes."""
+
+    times = _inventory_times(inventory_times)
+    boundaries = _as_finite_1d(boundary_values, "boundary_values")
+    if boundaries.size != times.size:
+        raise ValueError("boundary_values must match inventory_times length")
+    if np.any(boundaries < 0.0):
+        raise ValueError("boundary_values must be non-negative")
+    if np.any(np.diff(boundaries) < -1e-12):
+        raise ValueError("boundary_values must be non-decreasing")
+    selected_convention = _boundary_convention(convention)
+    selected_kind = _boundary_kind(boundary_kind)
+    counts = _retained_counts_from_boundary_values(
+        boundaries,
+        convention=selected_convention,
+        boundary_kind=selected_kind,
+    )
+    matrix = _claim_size_intensity_matrix(claim_size_intensities, times.size)
+    return _nonhomogeneous_result_from_counts(
+        matrix,
+        inventory_times=times,
+        retained_counts=counts,
+        boundary_values=boundaries,
+        convention=(
+            f"{selected_convention}; boundary_kind={selected_kind}; "
+            "non-stationary claim-size intensities"
+        ),
+        return_result=return_result,
+    )
+
+
+def finite_time_ruin_discrete_nonhomogeneous_boundary_function(
+    claim_size_intensity_integrals: Callable[[float, float], ArrayLike],
+    *,
+    boundary: Callable[[float], float],
+    horizon: float,
+    convention: BoundaryRuinConvention = "negative",
+    root_tol: float = 1e-10,
+    max_bisection: int = 80,
+    return_result: bool = False,
+) -> float | FiniteTimeDiscreteNonhomogeneousResult:
+    """Exact finite-time ruin from a boundary and interval intensity callback.
+
+    The callback receives ``(start, end)`` and returns integrated intensities
+    ``Lambda_k(start, end)`` by claim size ``k`` for that inventory interval.
+    """
+
+    if not callable(claim_size_intensity_integrals):
+        raise TypeError("claim_size_intensity_integrals must be callable")
+    selected_convention = _boundary_convention(convention)
+    grid = finite_time_discrete_boundary_crossings(
+        boundary,
+        horizon=horizon,
+        root_tol=root_tol,
+        max_bisection=max_bisection,
+    )
+    if (
+        selected_convention == "nonpositive"
+        and math.isclose(_call_boundary(boundary, 0.0), 0.0, rel_tol=0.0, abs_tol=root_tol)
+    ):
+        empty = np.array([], dtype=float)
+        if not return_result:
+            return 1.0
+        return FiniteTimeDiscreteNonhomogeneousResult(
+            horizon=grid.horizon,
+            claim_size_intensities=np.empty((0, 0), dtype=float),
+            survival_probability=0.0,
+            ruin_probability=1.0,
+            inventory_times=empty,
+            retained_counts=np.array([], dtype=int),
+            boundary_values=empty,
+            survival_probabilities=empty,
+            state_probabilities=empty,
+            convention=f"{selected_convention}; boundary_kind=crossing; initial ruin",
+        )
+
+    matrix = _claim_size_intensity_matrix_from_intervals(
+        claim_size_intensity_integrals,
+        grid.inventory_times,
+    )
+    return finite_time_ruin_discrete_nonhomogeneous_boundary(
+        matrix,
+        inventory_times=grid.inventory_times,
+        boundary_values=grid.boundary_values,
         convention=selected_convention,
         boundary_kind="crossing",
         return_result=return_result,

@@ -35,6 +35,7 @@ from ruin_theory import (
     finite_time_ruin_discrete_appell,
     finite_time_ruin_discrete_boundary,
     finite_time_ruin_discrete_inventory,
+    finite_time_ruin_discrete_nonhomogeneous_boundary,
     finite_time_ruin_discrete,
     gerber_shiu_from_paths,
     simulate_binar_byclaim_path,
@@ -271,6 +272,19 @@ def test_plot_finite_time_boundary_diagnostics():
     )
     with pytest.raises(ValueError, match="explicit boundary"):
         plot_finite_time_discrete_boundary(implicit)
+
+    nonhomogeneous = finite_time_ruin_discrete_nonhomogeneous_boundary(
+        [[0.0, 0.4], [0.0, 0.6]],
+        inventory_times=[0.5, 1.0],
+        boundary_values=[1.0, 1.5],
+        return_result=True,
+    )
+    fig, axes = plt.subplots(1, 2)
+    try:
+        assert plot_finite_time_discrete_survival(nonhomogeneous, ax=axes[0]) is axes[0]
+        assert plot_finite_time_discrete_boundary(nonhomogeneous, ax=axes[1]) is axes[1]
+    finally:
+        plt.close(fig)
 
 
 def test_plot_finite_time_appell_coefficients():

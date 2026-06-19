@@ -7,6 +7,7 @@ from ruin_theory import (
     FiniteTimeDiscreteAppellResult,
     FiniteTimeDiscreteBoundaryGrid,
     FiniteTimeDiscreteBoundaryResult,
+    FiniteTimeDiscreteNonhomogeneousResult,
     FiniteTimeDiscreteRuinResult,
     compound_poisson_appell_base,
     compound_poisson_lattice_pmf,
@@ -16,7 +17,11 @@ from ruin_theory import (
     finite_time_ruin_discrete_boundary_function,
     finite_time_ruin_discrete_boundary,
     finite_time_ruin_discrete_inventory,
+    finite_time_ruin_discrete_nonhomogeneous_boundary_function,
+    finite_time_ruin_discrete_nonhomogeneous_boundary,
+    finite_time_ruin_discrete_nonhomogeneous_inventory,
     finite_time_ruin_discrete,
+    nonhomogeneous_compound_poisson_lattice_pmf,
 )
 
 
@@ -24,6 +29,34 @@ def test_compound_poisson_lattice_pmf_matches_poisson_for_unit_claims():
     pmf = compound_poisson_lattice_pmf([0.0, 1.0], mean=2.0, max_aggregate=4)
     expected = np.exp(-2.0) * np.array([1.0, 2.0, 2.0, 4.0 / 3.0, 2.0 / 3.0])
     np.testing.assert_allclose(pmf, expected)
+
+
+def test_nonhomogeneous_compound_poisson_lattice_pmf_matches_independent_counts():
+    pmf = nonhomogeneous_compound_poisson_lattice_pmf([0.0, 0.4, 0.2], max_aggregate=3)
+    base = math.exp(-0.6)
+    expected = base * np.array(
+        [
+            1.0,
+            0.4,
+            0.4**2 / 2.0 + 0.2,
+            0.4**3 / 6.0 + 0.4 * 0.2,
+        ],
+    )
+
+    np.testing.assert_allclose(pmf, expected)
+
+
+def test_nonhomogeneous_compound_poisson_lattice_pmf_matches_homogeneous_thinning():
+    claim_pmf = np.array([0.2, 0.5, 0.3])
+    mean = 1.7
+
+    homogeneous = compound_poisson_lattice_pmf(claim_pmf, mean=mean, max_aggregate=4)
+    nonhomogeneous = nonhomogeneous_compound_poisson_lattice_pmf(
+        mean * claim_pmf,
+        max_aggregate=4,
+    )
+
+    np.testing.assert_allclose(nonhomogeneous, homogeneous)
 
 
 def test_compound_poisson_appell_base_matches_unit_claim_polynomials():
@@ -284,6 +317,77 @@ def test_boundary_function_accepts_nonhomogeneous_poisson_mean():
     np.testing.assert_allclose(result.arrival_means, [0.16, 0.84], atol=1e-10)
 
 
+def test_nonhomogeneous_inventory_matches_homogeneous_unit_claims():
+    result = finite_time_ruin_discrete_nonhomogeneous_inventory(
+        [[0.0, 0.4], [0.0, 0.6]],
+        inventory_times=[0.4, 1.0],
+        retained_counts=[1, 2],
+        return_result=True,
+    )
+    manual = finite_time_ruin_discrete_inventory(
+        [0.0, 1.0],
+        inventory_times=[0.4, 1.0],
+        retained_counts=[1, 2],
+        arrival_means=[0.4, 0.6],
+        return_result=True,
+    )
+
+    assert isinstance(result, FiniteTimeDiscreteNonhomogeneousResult)
+    assert result.ruin_probability == pytest.approx(manual.ruin_probability)
+    np.testing.assert_allclose(result.survival_probabilities, manual.survival_probabilities)
+    np.testing.assert_allclose(result.claim_size_intensities[:, 1], [0.4, 0.6])
+
+
+def test_nonhomogeneous_boundary_handles_time_varying_severity_mix():
+    result = finite_time_ruin_discrete_nonhomogeneous_boundary(
+        [[0.0, 0.4, 0.2]],
+        inventory_times=[1.0],
+        boundary_values=[2.0],
+        return_result=True,
+    )
+    increment = nonhomogeneous_compound_poisson_lattice_pmf([0.0, 0.4, 0.2], max_aggregate=2)
+
+    assert result.retained_counts.tolist() == [3]
+    assert result.survival_probability == pytest.approx(float(np.sum(increment)))
+    assert result.ruin_probability == pytest.approx(1.0 - float(np.sum(increment)))
+
+
+def test_nonhomogeneous_boundary_function_matches_cumulative_mean_for_unit_claims():
+    boundary = lambda time: 0.6 + time
+    result = finite_time_ruin_discrete_nonhomogeneous_boundary_function(
+        lambda start, end: [0.0, end * end - start * start],
+        boundary=boundary,
+        horizon=1.0,
+        return_result=True,
+    )
+    manual = finite_time_ruin_discrete_boundary_function(
+        [0.0, 1.0],
+        boundary=boundary,
+        horizon=1.0,
+        cumulative_arrival_mean=lambda time: time * time,
+        return_result=True,
+    )
+
+    assert result.ruin_probability == pytest.approx(manual.ruin_probability)
+    np.testing.assert_allclose(result.inventory_times, manual.inventory_times)
+    np.testing.assert_allclose(result.survival_probabilities, manual.survival_probabilities)
+
+
+def test_nonhomogeneous_boundary_function_handles_nonpositive_initial_ruin():
+    result = finite_time_ruin_discrete_nonhomogeneous_boundary_function(
+        lambda start, end: [0.0, end - start],
+        boundary=lambda time: time,
+        horizon=1.0,
+        convention="nonpositive",
+        return_result=True,
+    )
+
+    assert result.ruin_probability == 1.0
+    assert result.survival_probability == 0.0
+    assert result.inventory_times.size == 0
+    assert result.claim_size_intensities.shape == (0, 0)
+
+
 def test_boundary_function_handles_nonpositive_initial_ruin():
     result = finite_time_ruin_discrete_boundary_function(
         [0.0, 1.0],
@@ -412,6 +516,20 @@ def test_finite_discrete_formulas_validate_inputs():
             boundary=lambda time: time + 1.0,
             horizon=1.0,
             cumulative_arrival_mean=lambda time: 1.0 - time,
+        )
+    with pytest.raises(ValueError, match="non-negative"):
+        nonhomogeneous_compound_poisson_lattice_pmf([0.0, -1.0], max_aggregate=1)
+    with pytest.raises(ValueError, match="one row"):
+        finite_time_ruin_discrete_nonhomogeneous_inventory(
+            [[0.0, 1.0]],
+            inventory_times=[1.0, 2.0],
+            retained_counts=[1, 2],
+        )
+    with pytest.raises(TypeError, match="callable"):
+        finite_time_ruin_discrete_nonhomogeneous_boundary_function(
+            3.0,
+            boundary=lambda time: time + 1.0,
+            horizon=1.0,
         )
     with pytest.raises(ValueError, match="non-negative"):
         compound_poisson_appell_base(
