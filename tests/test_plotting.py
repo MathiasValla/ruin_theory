@@ -13,6 +13,7 @@ from matplotlib import pyplot as plt
 from ruin_theory.plotting import (
     plot_path,
     plot_paths,
+    plot_periodic_pressure,
     plot_prevention_calendar,
     plot_ruin_curve,
     plot_ruin_time_histogram,
@@ -186,6 +187,31 @@ def test_plot_prevention_calendar_handles_lagged_calendar():
 
     with pytest.raises(ValueError, match="labels"):
         plot_prevention_calendar(calendar, labels=["A"])
+
+
+def test_plot_periodic_pressure_shows_controlled_pressure():
+    calendar = optimize_periodic_prevention_calendar(
+        [1.0, 4.0, 2.0],
+        annual_budget=0.3,
+        max_prevention=0.8,
+        effectiveness=2.0,
+    )
+
+    fig, ax = plt.subplots()
+    try:
+        result = plot_periodic_pressure(calendar, ax=ax, labels=["A", "B", "C"])
+
+        assert result is ax
+        assert ax.get_ylabel() == "period pressure"
+        assert ax.get_title() == "Periodic risk pressure"
+        assert len(ax.patches) == 3
+        assert len(ax.lines) == 1
+        assert ax.get_legend() is not None
+    finally:
+        plt.close(fig)
+
+    with pytest.raises(ValueError, match="labels"):
+        plot_periodic_pressure(calendar, labels=["A"])
 
     fig, ax = plt.subplots()
     try:

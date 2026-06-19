@@ -90,7 +90,8 @@ Cramer-Lundberg primary-claim models with linear severity scaling:
 - constant prevention optimization for ruin probability, adjustment coefficient
   and expected surplus in the Gauchon et al. (2020) model;
 - periodic prevention calendars with projected-log KKT allocation, lagged
-  calendars and heavy-tail tail-pressure optimization;
+  calendars, annual Lundberg/net-profit helpers and heavy-tail tail-pressure
+  optimization;
 - De Vylder three-moment approximation for supported severity families.
 
 Sparre-Andersen arrivals, by-claims, capital injections and nonlinear prevention

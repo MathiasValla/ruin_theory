@@ -16,6 +16,10 @@ from ruin_theory import (
     optimize_expected_surplus_prevention,
     optimize_heavy_tail_prevention_calendar,
     optimize_periodic_prevention_calendar,
+    periodic_controlled_pressure,
+    periodic_lundberg_coefficient,
+    periodic_net_profit,
+    periodic_pressure_weights,
 )
 
 
@@ -221,6 +225,37 @@ def test_periodic_prevention_lag_shifts_spending_before_pressure_peak():
     assert result.controlled_pressure < result.constant_pressure
 
 
+def test_periodic_pressure_weights_and_net_profit_match_annual_definitions():
+    weights = periodic_pressure_weights(
+        [12.0, 6.0],
+        severity_weights=[2.0, 4.0],
+        durations=[0.25, 0.75],
+    )
+
+    np.testing.assert_allclose(weights, [6.0, 18.0])
+    assert periodic_controlled_pressure(weights, [0.1, 0.2], effectiveness=2.0) == pytest.approx(
+        6.0 * math.exp(-0.2) + 18.0 * math.exp(-0.4),
+    )
+    assert periodic_net_profit(
+        premium_rate=30.0,
+        annual_budget=2.0,
+        claim_mean=3.0,
+        controlled_frequency=8.0,
+    ) == pytest.approx(4.0)
+
+
+def test_periodic_lundberg_coefficient_matches_classical_exponential_root():
+    claims = exponential(rate=5.0)
+    coefficient = periodic_lundberg_coefficient(
+        claims,
+        premium_rate=1.0,
+        annual_budget=0.0,
+        controlled_frequency=3.0,
+    )
+
+    assert coefficient == pytest.approx(2.0)
+
+
 def test_heavy_tail_prevention_uses_combined_tail_pressure_effectiveness():
     tail_pressures = np.array([0.01, 0.04, 0.03, 0.02])
     result = optimize_heavy_tail_prevention_calendar(
@@ -349,4 +384,11 @@ def test_constant_prevention_optimizer_validates_arguments():
             tail_index=1.0,
             annual_capacity=1.0,
             tail_constant=1.0,
+        )
+    with pytest.raises(ValueError, match="net profit"):
+        periodic_lundberg_coefficient(
+            exponential(rate=1.0),
+            premium_rate=1.0,
+            annual_budget=0.0,
+            controlled_frequency=2.0,
         )

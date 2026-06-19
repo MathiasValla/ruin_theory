@@ -329,6 +329,156 @@ def _budget_spent(amounts: np.ndarray, durations: np.ndarray) -> float:
     return float(np.dot(durations, amounts))
 
 
+def periodic_pressure_weights(
+    frequency_rates: np.ndarray | list[float] | tuple[float, ...],
+    *,
+    severity_weights: np.ndarray | list[float] | tuple[float, ...] | None = None,
+    durations: np.ndarray | list[float] | tuple[float, ...] | None = None,
+) -> np.ndarray:
+    """Integrate period rates into annual pressure weights.
+
+    Use `severity_weights=None` for annual frequency weights, mean retained
+    severities for expected-loss pressure, `M_i(r)-1` for seasonal Lundberg
+    pressure, or tail constants for heavy-tail pressure.
+    """
+
+    rates, period_lengths = _periodic_inputs(frequency_rates, durations)
+    if severity_weights is None:
+        multipliers = np.ones_like(rates)
+    else:
+        multipliers = _as_1d_float_array(severity_weights, "severity_weights")
+        if multipliers.shape != rates.shape:
+            raise ValueError("severity_weights must have the same shape as frequency_rates")
+        if np.any(multipliers < 0.0):
+            raise ValueError("severity_weights must be non-negative")
+    return rates * multipliers * period_lengths
+
+
+def periodic_controlled_pressure(
+    weights: np.ndarray | list[float] | tuple[float, ...],
+    amounts: np.ndarray | list[float] | tuple[float, ...],
+    *,
+    effectiveness: float,
+    lag_steps: int = 0,
+) -> float:
+    """Evaluate the controlled periodic pressure for a fixed calendar."""
+
+    pressure = _as_1d_float_array(weights, "weights")
+    if np.any(pressure < 0.0):
+        raise ValueError("weights must be non-negative")
+    prevention = _as_1d_float_array(amounts, "amounts")
+    if prevention.shape != pressure.shape:
+        raise ValueError("amounts must have the same shape as weights")
+    if np.any(prevention < 0.0):
+        raise ValueError("amounts must be non-negative")
+    response = _positive_float(effectiveness, "effectiveness")
+    lag = int(lag_steps)
+    if lag != lag_steps:
+        raise ValueError("lag_steps must be an integer")
+    effective = np.roll(prevention, lag)
+    return float(np.dot(pressure, np.exp(-response * effective)))
+
+
+def periodic_net_profit(
+    *,
+    premium_rate: float,
+    annual_budget: float,
+    claim_mean: float,
+    controlled_frequency: float,
+) -> float:
+    """Annual periodic net profit margin `c - B(p) - m A(p)`."""
+
+    premium = _positive_float(premium_rate, "premium_rate")
+    budget = _nonnegative_float(annual_budget, "annual_budget")
+    mean = _positive_float(claim_mean, "claim_mean")
+    frequency = _nonnegative_float(controlled_frequency, "controlled_frequency")
+    return float(premium - budget - mean * frequency)
+
+
+def periodic_lundberg_coefficient(
+    claim_distribution: ClaimDistribution,
+    *,
+    premium_rate: float,
+    annual_budget: float,
+    controlled_frequency: float,
+    upper: float | None = None,
+    tol: float = 1e-12,
+) -> float:
+    """Solve the one-year periodic Lundberg equation.
+
+    The equation is `rho * (c - B(p)) = A(p) * (M_X(rho) - 1)`, where `A(p)`
+    is the controlled annual frequency and `B(p)` is the annual prevention
+    budget.
+    """
+
+    mean_claim = _finite_positive_claim_mean(claim_distribution)
+    premium = _positive_float(premium_rate, "premium_rate")
+    budget = _nonnegative_float(annual_budget, "annual_budget")
+    frequency = _nonnegative_float(controlled_frequency, "controlled_frequency")
+    tol = _positive_float(tol, "tol")
+    net_premium = premium - budget
+    if net_premium <= 0.0:
+        raise ValueError("premium_rate must exceed annual_budget")
+    if periodic_net_profit(
+        premium_rate=premium,
+        annual_budget=budget,
+        claim_mean=mean_claim,
+        controlled_frequency=frequency,
+    ) <= 0.0:
+        raise ValueError("periodic net profit condition must hold")
+    if frequency == 0.0:
+        raise ValueError("controlled_frequency must be positive")
+
+    def kappa(r: float) -> float:
+        return frequency * (claim_distribution.mgf(r) - 1.0) - net_premium * r
+
+    lower = tol
+    lower_value = kappa(lower)
+    for _ in range(20):
+        if np.isfinite(lower_value) and lower_value < 0.0:
+            break
+        lower *= 0.1
+        lower_value = kappa(lower)
+    else:
+        raise ValueError("could not bracket the periodic Lundberg coefficient near zero")
+
+    def finite_positive_upper(low: float, high: float) -> float:
+        for _ in range(80):
+            midpoint = 0.5 * (low + high)
+            midpoint_value = kappa(midpoint)
+            if np.isfinite(midpoint_value):
+                if midpoint_value > 0.0:
+                    return midpoint
+                low = midpoint
+            else:
+                high = midpoint
+        raise ValueError("could not bracket the periodic Lundberg coefficient")
+
+    if upper is None:
+        high = 1.0
+        bracket_low = lower
+        for _ in range(80):
+            value = kappa(high)
+            if np.isfinite(value) and value > 0.0:
+                break
+            if np.isposinf(value):
+                high = finite_positive_upper(bracket_low, high)
+                break
+            if np.isfinite(value):
+                bracket_low = high
+            high *= 2.0
+        else:
+            raise ValueError("could not bracket the periodic Lundberg coefficient")
+    else:
+        high = _positive_float(upper, "upper")
+        value = kappa(high)
+        if np.isposinf(value):
+            high = finite_positive_upper(lower, high)
+        elif not np.isfinite(value) or value <= 0.0:
+            raise ValueError("upper does not bracket the periodic Lundberg coefficient")
+    return float(optimize.brentq(kappa, lower, high, xtol=tol, rtol=tol))
+
+
 def optimize_constant_prevention(
     claim_distribution: ClaimDistribution,
     *,

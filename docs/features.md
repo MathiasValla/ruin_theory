@@ -406,11 +406,31 @@ Returns a `PeriodicPreventionResult` with spending `amounts`,
 baseline/controlled/constant pressures, and a `frequency_windows()` method that
 can feed `PreventionProgram`.
 
+Related helpers:
+
+- `periodic_pressure_weights(frequency_rates, severity_weights=None,
+  durations=None)`: integrates period rates into annual weights. Use
+  `severity_weights=None` for frequency weights, retained mean severities for
+  expected-loss pressure, `M_i(rho)-1` for Lundberg pressure, and tail constants
+  for heavy-tail pressure.
+- `periodic_controlled_pressure(weights, amounts, effectiveness,
+  lag_steps=0)`: evaluates the controlled annual pressure for a fixed calendar.
+- `periodic_net_profit(premium_rate, annual_budget, claim_mean,
+  controlled_frequency)`: returns `c - B(p) - m A(p)`.
+- `periodic_lundberg_coefficient(claim_distribution, premium_rate,
+  annual_budget, controlled_frequency, upper=None, tol=1e-12)`: solves
+  `rho * (c - B(p)) = A(p) * (M_X(rho) - 1)`.
+
 Minimal example:
 
 ```python
 import numpy as np
-from ruin_theory import optimize_periodic_prevention_calendar
+from ruin_theory import (
+    exponential,
+    optimize_periodic_prevention_calendar,
+    periodic_lundberg_coefficient,
+    periodic_pressure_weights,
+)
 
 monthly_pressure = np.array([0.09, 0.07, 0.04, 0.02, 0.01, 0.01,
                              0.01, 0.02, 0.03, 0.05, 0.08, 0.11])
@@ -422,6 +442,15 @@ calendar = optimize_periodic_prevention_calendar(
 )
 print(calendar.amounts)
 print(calendar.controlled_pressure, calendar.constant_pressure)
+
+frequency_weights = periodic_pressure_weights([3.0] * 12)
+rho = periodic_lundberg_coefficient(
+    exponential(rate=5.0),
+    premium_rate=1.0,
+    annual_budget=0.0,
+    controlled_frequency=frequency_weights.sum(),
+)
+print(rho)
 ```
 
 ### Heavy-Tail Periodic Prevention
@@ -690,6 +719,8 @@ Available diagnostics:
 - `plot_prevention_calendar(calendar, ax=None, labels=None,
   show_effective=True)`: bar plot of a periodic prevention calendar, with the
   lagged effective calendar overlaid when relevant.
+- `plot_periodic_pressure(calendar, ax=None, labels=None,
+  show_controlled=True)`: baseline and controlled periodic pressure weights.
 
 Minimal example:
 
@@ -699,6 +730,7 @@ from matplotlib import pyplot as plt
 from ruin_theory import (
     estimate_ruin_probability,
     optimize_periodic_prevention_calendar,
+    plot_periodic_pressure,
     plot_prevention_calendar,
     plot_ruin_curve,
     plot_terminal_reserve_distribution,
@@ -721,6 +753,7 @@ calendar = optimize_periodic_prevention_calendar(
     effectiveness=5.0,
 )
 plot_prevention_calendar(calendar)
+plot_periodic_pressure(calendar)
 plt.show()
 ```
 

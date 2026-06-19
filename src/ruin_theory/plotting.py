@@ -268,3 +268,45 @@ def plot_prevention_calendar(
     axis.set_ylabel("prevention rate")
     axis.set_title("Periodic prevention calendar")
     return axis
+
+
+def plot_periodic_pressure(
+    calendar: PeriodicPreventionResult,
+    *,
+    ax: Axes | None = None,
+    labels: Iterable[str] | None = None,
+    show_controlled: bool = True,
+) -> Axes:
+    """Plot baseline and controlled periodic pressure weights."""
+
+    if not isinstance(calendar, PeriodicPreventionResult):
+        raise TypeError("calendar must be a PeriodicPreventionResult")
+
+    n_periods = calendar.weights.size
+    x = np.arange(n_periods)
+    if labels is None:
+        tick_labels = [str(i + 1) for i in x]
+    else:
+        tick_labels = list(labels)
+        if len(tick_labels) != n_periods:
+            raise ValueError("labels must match the number of calendar periods")
+
+    axis = _axis(ax)
+    axis.bar(x, calendar.weights, color="#4c78a8", alpha=0.35, label="baseline")
+    if show_controlled:
+        controlled = calendar.weights * calendar.frequency_multipliers
+        axis.plot(
+            x,
+            controlled,
+            color="#0b6e4f",
+            linewidth=2.0,
+            marker="o",
+            label="controlled",
+        )
+        axis.legend()
+
+    axis.set_xticks(x)
+    axis.set_xticklabels(tick_labels)
+    axis.set_ylabel("period pressure")
+    axis.set_title("Periodic risk pressure")
+    return axis
