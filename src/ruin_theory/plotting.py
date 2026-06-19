@@ -9,6 +9,7 @@ from matplotlib import pyplot as plt
 from matplotlib.axes import Axes
 from numpy.typing import ArrayLike
 
+from .integer_byclaims import IntegerByClaimPath
 from .prevention import PeriodicPreventionResult
 from .results import RuinEstimate, SimulationPath
 
@@ -309,4 +310,54 @@ def plot_periodic_pressure(
     axis.set_xticklabels(tick_labels)
     axis.set_ylabel("period pressure")
     axis.set_title("Periodic risk pressure")
+    return axis
+
+
+def plot_integer_byclaim_path(
+    path: IntegerByClaimPath,
+    *,
+    ax: Axes | None = None,
+    show_ruin: bool = True,
+) -> Axes:
+    """Plot a discrete INAR/BINAR by-claim reserve trajectory."""
+
+    if not isinstance(path, IntegerByClaimPath):
+        raise TypeError("path must be an IntegerByClaimPath")
+    axis = _axis(ax)
+    periods = np.arange(path.reserves.size)
+    axis.step(periods, path.reserves, where="post", color="#1f77b4", linewidth=1.8)
+    axis.axhline(0.0, color="#222222", linewidth=1.0, linestyle="--")
+    if show_ruin and path.ruin_time is not None:
+        axis.axvline(path.ruin_time, color="#b00020", linewidth=1.2, linestyle=":")
+    axis.set_xlabel("period")
+    axis.set_ylabel("reserve")
+    axis.set_title("Discrete by-claim reserve path")
+    return axis
+
+
+def plot_integer_byclaim_counts(
+    path: IntegerByClaimPath,
+    *,
+    ax: Axes | None = None,
+    kind: str = "byclaim",
+) -> Axes:
+    """Plot primary or by-claim counts by period."""
+
+    if not isinstance(path, IntegerByClaimPath):
+        raise TypeError("path must be an IntegerByClaimPath")
+    if kind not in {"primary", "byclaim"}:
+        raise ValueError("kind must be 'primary' or 'byclaim'")
+    counts = path.primary_counts if kind == "primary" else path.byclaim_counts
+    axis = _axis(ax)
+    periods = np.arange(1, counts.shape[0] + 1)
+    bottom = np.zeros(counts.shape[0], dtype=float)
+    for index in range(counts.shape[1]):
+        label = f"type {index + 1}" if counts.shape[1] > 1 else kind
+        axis.bar(periods, counts[:, index], bottom=bottom, label=label)
+        bottom += counts[:, index]
+    axis.set_xlabel("period")
+    axis.set_ylabel("count")
+    axis.set_title("Primary counts" if kind == "primary" else "By-claim counts")
+    if counts.shape[1] > 1:
+        axis.legend()
     return axis

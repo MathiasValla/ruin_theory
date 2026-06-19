@@ -92,10 +92,13 @@ Cramer-Lundberg primary-claim models with linear severity scaling:
 - periodic prevention calendars with projected-log KKT allocation, lagged
   calendars, annual Lundberg/net-profit helpers and heavy-tail tail-pressure
   optimization;
+- discrete-time INAR/BINAR by-claim simulation, ruin estimation and
+  diagnostics;
 - De Vylder three-moment approximation for supported severity families.
 
-Sparre-Andersen arrivals, by-claims, capital injections and nonlinear prevention
-are available in simulation. Markov-modulated methods and matrix-valued
+Sparre-Andersen arrivals, by-claims, INAR/BINAR dependent by-claims, capital
+injections and nonlinear prevention are available in simulation.
+Markov-modulated methods and matrix-valued
 Gerber-Shiu quantities are planned extensions rather than completed APIs. The
 two-claim-type prevention model remains a planned extension beyond the current
 single-risk and periodic prevention optimizers.

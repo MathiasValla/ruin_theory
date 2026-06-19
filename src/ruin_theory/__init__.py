@@ -39,6 +39,20 @@ from .formulas import (
     ultimate_ruin_hyperexponential,
     ultimate_ruin_phase_type,
 )
+from .integer_byclaims import (
+    BINARByClaimModel,
+    INARByClaimModel,
+    IntegerByClaimPath,
+    estimate_binar_byclaim_ruin_probability,
+    estimate_inar_byclaim_ruin_probability,
+    estimate_integer_byclaim_ruin_probability,
+    simulate_binar_byclaim_path,
+    simulate_binar_byclaim_terminal_reserves,
+    simulate_inar_byclaim_path,
+    simulate_inar_byclaim_terminal_reserves,
+    simulate_integer_byclaim_path,
+    simulate_integer_byclaim_terminal_reserves,
+)
 from .models import (
     ByClaimModel,
     CapitalInjectionModel,
@@ -73,6 +87,8 @@ from .renewal import (
     ultimate_ruin_panjer,
 )
 from .plotting import (
+    plot_integer_byclaim_counts,
+    plot_integer_byclaim_path,
     plot_path,
     plot_paths,
     plot_periodic_pressure,
@@ -86,6 +102,7 @@ from .simulation import estimate_ruin_probability, simulate_path, simulate_termi
 
 __all__ = [
     "AggregateDistribution",
+    "BINARByClaimModel",
     "ByClaimModel",
     "CapitalInjectionModel",
     "ClaimDistribution",
@@ -95,6 +112,8 @@ __all__ = [
     "ExpectedSurplusPreventionResult",
     "FrequencyModel",
     "HeavyTailPreventionResult",
+    "INARByClaimModel",
+    "IntegerByClaimPath",
     "PeriodicPreventionResult",
     "PreventionProgram",
     "PanjerRuinResult",
@@ -116,6 +135,9 @@ __all__ = [
     "empirical_moment",
     "erlang",
     "estimate_ruin_probability",
+    "estimate_binar_byclaim_ruin_probability",
+    "estimate_inar_byclaim_ruin_probability",
+    "estimate_integer_byclaim_ruin_probability",
     "expected_time_to_ruin_exponential",
     "exponential",
     "finite_time_ruin_exponential",
@@ -141,6 +163,8 @@ __all__ = [
     "pareto",
     "phase_type",
     "panjer_recursion",
+    "plot_integer_byclaim_counts",
+    "plot_integer_byclaim_path",
     "plot_path",
     "plot_paths",
     "plot_periodic_pressure",
@@ -153,6 +177,12 @@ __all__ = [
     "safety_loading",
     "scipy_distribution",
     "simulate_path",
+    "simulate_binar_byclaim_path",
+    "simulate_binar_byclaim_terminal_reserves",
+    "simulate_inar_byclaim_path",
+    "simulate_inar_byclaim_terminal_reserves",
+    "simulate_integer_byclaim_path",
+    "simulate_integer_byclaim_terminal_reserves",
     "simulate_terminal_reserves",
     "ultimate_ruin_exponential",
     "ultimate_ruin_hyperexponential",

@@ -530,6 +530,123 @@ model = CramerLundbergProcess(
 print(model.expected_claim_amount)
 ```
 
+## INAR/BINAR By-Claim Processes
+
+This layer implements the discrete by-claim models used in the local INAR/BINAR
+reference scripts. It is separate from `CramerLundbergProcess` because the
+secondary claim counts are temporally dependent instead of being attached
+independently to each primary claim.
+
+### `INARByClaimModel`
+
+Univariate INAR(1) by-claim model:
+
+```text
+N_k ~ Poisson(lambda),
+M_0 = rho o Q_0 + N_0,   Q_0 ~ Poisson(gamma_0),
+M_k = rho o M_{k-1} + N_k.
+```
+
+Arguments:
+
+- `initial_capital`: initial reserve.
+- `premium_per_period`: deterministic premium income per discrete period.
+- `primary_count_mean`: Poisson mean `lambda` for primary claim counts.
+- `initial_byclaim_mean`: Poisson mean `gamma_0` for initial by-claim stock.
+- `reproduction`: binomial thinning coefficient `rho`.
+- `primary_distribution`: severity distribution for primary claims.
+- `byclaim_distribution`: severity distribution for by-claims.
+- `name`: optional metadata label.
+
+Useful methods:
+
+- `expected_byclaim_counts(periods)`: theoretical by-claim count means.
+- `expected_terminal_reserve(periods)`: theoretical terminal-reserve mean.
+
+Simulation functions:
+
+- `simulate_inar_byclaim_path(model, periods, seed=None, stop_at_ruin=True,
+  ruin_threshold=0, ruin_inclusive=True)`.
+- `simulate_inar_byclaim_terminal_reserves(model, periods, n_simulations,
+  seed=None)`.
+- `estimate_inar_byclaim_ruin_probability(model, periods, n_simulations=10000,
+  ci_level=0.95, ci_method="wilson", seed=None, ...)`.
+
+Minimal example:
+
+```python
+from ruin_theory import (
+    INARByClaimModel,
+    deterministic,
+    estimate_inar_byclaim_ruin_probability,
+    simulate_inar_byclaim_path,
+)
+
+model = INARByClaimModel(
+    initial_capital=0.0,
+    premium_per_period=36.0,
+    primary_count_mean=10.0,
+    initial_byclaim_mean=10.0,
+    reproduction=0.9,
+    primary_distribution=deterministic(2.0),
+    byclaim_distribution=deterministic(1.0),
+)
+path = simulate_inar_byclaim_path(model, periods=11, seed=123)
+estimate = estimate_inar_byclaim_ruin_probability(model, periods=11, seed=123)
+print(path.ruined, estimate.probability)
+```
+
+### `BINARByClaimModel`
+
+Bivariate BINAR(1) by-claim model with primary innovations
+`N_k = (N_{1,k}, N_{2,k})` and thinning matrix `A`:
+
+```text
+M_0 = A o Q_0 + N_0,
+M_k = A o M_{k-1} + N_k,
+```
+
+where each `A[i, j] o M_j` is an independent binomial thinning from previous
+type `j` into current type `i`.
+
+Arguments:
+
+- `initial_capital`, `premium_per_period`: as above.
+- `primary_count_means`: two Poisson means for primary claim types.
+- `initial_byclaim_means`: two Poisson means for the initial by-claim stock.
+- `reproduction_matrix`: 2-by-2 binomial thinning matrix.
+- `primary_distributions`: two primary severity laws.
+- `byclaim_distributions`: two by-claim severity laws.
+- `name`: optional metadata label.
+
+Simulation functions mirror the INAR names:
+`simulate_binar_byclaim_path`, `simulate_binar_byclaim_terminal_reserves`, and
+`estimate_binar_byclaim_ruin_probability`.
+
+Minimal example:
+
+```python
+from ruin_theory import BINARByClaimModel, deterministic, simulate_binar_byclaim_path
+
+model = BINARByClaimModel(
+    initial_capital=1000.0,
+    premium_per_period=15000.0,
+    primary_count_means=(5.0, 7.0),
+    initial_byclaim_means=(1.0, 1.0),
+    reproduction_matrix=((0.41, 0.10), (0.05, 0.30)),
+    primary_distributions=(deterministic(10.0), deterministic(1.0)),
+    byclaim_distributions=(deterministic(0.5), deterministic(0.5)),
+)
+path = simulate_binar_byclaim_path(model, periods=10, seed=123)
+print(path.terminal_reserve)
+```
+
+The generic `IntegerByClaimPath` stores reserves, primary counts, by-claim
+counts, primary losses, by-claim losses, and the first ruin period. Generic
+helpers `simulate_integer_byclaim_path`,
+`simulate_integer_byclaim_terminal_reserves`, and
+`estimate_integer_byclaim_ruin_probability` accept either model type.
+
 ### `CapitalInjectionModel`
 
 Independent positive jumps in reserve trajectories.
@@ -721,6 +838,10 @@ Available diagnostics:
   lagged effective calendar overlaid when relevant.
 - `plot_periodic_pressure(calendar, ax=None, labels=None,
   show_controlled=True)`: baseline and controlled periodic pressure weights.
+- `plot_integer_byclaim_path(path, ax=None, show_ruin=True)`: discrete
+  INAR/BINAR reserve trajectory.
+- `plot_integer_byclaim_counts(path, ax=None, kind="byclaim")`: primary or
+  by-claim count bars by period.
 
 Minimal example:
 
@@ -730,6 +851,8 @@ from matplotlib import pyplot as plt
 from ruin_theory import (
     estimate_ruin_probability,
     optimize_periodic_prevention_calendar,
+    plot_integer_byclaim_counts,
+    plot_integer_byclaim_path,
     plot_periodic_pressure,
     plot_prevention_calendar,
     plot_ruin_curve,
@@ -774,6 +897,7 @@ Implemented now:
   calendars, and heavy-tail tail-pressure optimization.
 - Renewal and prevention-rich models in simulation.
 - By-claims with Poisson or geometric secondary counts.
+- Discrete-time INAR/BINAR by-claim simulation layers.
 - Equilibrium-tail helper and heavy-tail asymptotic path.
 - Diagnostics for trajectories, ruin curves, ruin times and terminal reserves.
 
@@ -782,6 +906,5 @@ Planned extensions:
 - Matrix-exponential extensions beyond standard phase-type severities.
 - Phase-type renewal waits and matrix-valued finite-time ruin solvers.
 - Gerber-Shiu penalties with surplus-before-ruin and deficit-at-ruin records.
-- Discrete-time INAR/BINAR by-claim processes.
 - Finite-horizon dynamic seasonal prevention beyond fixed annual calendars.
 - Two-claim-type prevention from Gauchon et al. (2021).

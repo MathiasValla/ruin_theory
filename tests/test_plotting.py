@@ -11,6 +11,8 @@ matplotlib.use("Agg")
 from matplotlib import pyplot as plt
 
 from ruin_theory.plotting import (
+    plot_integer_byclaim_counts,
+    plot_integer_byclaim_path,
     plot_path,
     plot_paths,
     plot_periodic_pressure,
@@ -19,6 +21,7 @@ from ruin_theory.plotting import (
     plot_ruin_time_histogram,
     plot_terminal_reserve_distribution,
 )
+from ruin_theory import INARByClaimModel, deterministic, simulate_inar_byclaim_path
 from ruin_theory.prevention import optimize_periodic_prevention_calendar
 from ruin_theory.results import RuinEstimate, SimulationPath
 
@@ -212,6 +215,35 @@ def test_plot_periodic_pressure_shows_controlled_pressure():
 
     with pytest.raises(ValueError, match="labels"):
         plot_periodic_pressure(calendar, labels=["A"])
+
+
+def test_plot_integer_byclaim_path_and_counts():
+    model = INARByClaimModel(
+        initial_capital=10.0,
+        premium_per_period=2.0,
+        primary_count_mean=2.0,
+        initial_byclaim_mean=1.0,
+        reproduction=0.4,
+        primary_distribution=deterministic(1.0),
+        byclaim_distribution=deterministic(1.0),
+    )
+    path = simulate_inar_byclaim_path(model, periods=4, seed=123, stop_at_ruin=False)
+
+    fig, axes = plt.subplots(1, 2)
+    try:
+        reserve_axis = plot_integer_byclaim_path(path, ax=axes[0])
+        count_axis = plot_integer_byclaim_counts(path, ax=axes[1])
+
+        assert reserve_axis.get_xlabel() == "period"
+        assert reserve_axis.get_title() == "Discrete by-claim reserve path"
+        assert count_axis.get_ylabel() == "count"
+        assert count_axis.get_title() == "By-claim counts"
+        assert len(count_axis.patches) == 4
+    finally:
+        plt.close(fig)
+
+    with pytest.raises(ValueError, match="kind"):
+        plot_integer_byclaim_counts(path, kind="secondary")
 
     fig, ax = plt.subplots()
     try:

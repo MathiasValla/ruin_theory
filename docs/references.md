@@ -84,11 +84,23 @@ aggregate-distribution methods.
 
 ## By-Claims And Discrete Dependence
 
-The current package supports event-level by-claims in continuous-time
-simulation. The planned INAR/BINAR layer is motivated by local project scripts
-and should be documented separately when promoted to public API. Relevant
-background for dependent count processes and multivariate integer-valued
-autoregression should be cited with the future implementation.
+The package supports independent event-level by-claims in continuous-time
+simulation and INAR/BINAR dependent by-claim counts in discrete time.
+
+- McKenzie, E. (1985). Some simple models for discrete variate time series.
+  *Water Resources Bulletin*, 21(4), 645-650.
+- Al-Osh, M. A., and Alzaid, A. A. (1987). First-order integer-valued
+  autoregressive (INAR(1)) process. *Journal of Time Series Analysis*, 8(3),
+  261-275.
+- Du, J. G., and Li, Y. (1991). The integer-valued autoregressive (INAR(p))
+  model. *Journal of Time Series Analysis*, 12(2), 129-142.
+- Pedeli, X., and Karlis, D. (2011). A bivariate INAR(1) process with
+  application. *Statistical Modelling*, 11(4), 325-349.
+
+The concrete ruin-simulation conventions for this package are also checked
+against the local reference scripts `ModeleINARen1Dcalculsderuine.py`,
+`ModeleINARen1Dmoyennesempiriques.py`, and
+`ModeleBINARen2Dcalculsde_psi_sum.py`.
 
 ## Acknowledgment
 
