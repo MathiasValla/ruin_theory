@@ -26,6 +26,7 @@ from .finite_discrete_time import (
 )
 from .dividends import BarrierDividendPath
 from .integer_byclaims import IntegerByClaimPath
+from .markov_modulated import DependenceImpactResult, MarkovModulatedRuinResult, solvency_region
 from .prevention import PeriodicPreventionResult
 from .red_time import AllocationGridResult, RedTimeCurveResult, ReserveAllocationResult
 from .results import GerberShiuResult, RuinEstimate, SimulationPath
@@ -842,6 +843,148 @@ def plot_barrier_comparison(
     axis.set_title("Dividend-barrier comparison")
     if label:
         axis.legend()
+    return axis
+
+
+def plot_markov_modulated_ruin_curves(
+    results: MarkovModulatedRuinResult | Iterable[MarkovModulatedRuinResult],
+    *,
+    ax: Axes | None = None,
+    labels: Iterable[str] | None = None,
+) -> Axes:
+    """Plot finite-time ruin curves for Markov-modulated multirisk results."""
+
+    result_list = (results,) if isinstance(results, MarkovModulatedRuinResult) else tuple(results)
+    if not result_list:
+        raise ValueError("results must contain at least one MarkovModulatedRuinResult")
+    if not all(isinstance(result, MarkovModulatedRuinResult) for result in result_list):
+        raise TypeError("results must contain MarkovModulatedRuinResult instances")
+    if labels is None:
+        label_list = [result.region for result in result_list]
+    else:
+        label_list = list(labels)
+        if len(label_list) != len(result_list):
+            raise ValueError("labels must match results")
+
+    axis = _axis(ax)
+    for result, label in zip(result_list, label_list):
+        periods = np.arange(result.ruin_probabilities.size)
+        axis.plot(periods, result.ruin_probabilities, linewidth=2.0, marker="o", label=label)
+    axis.set_xlabel("period")
+    axis.set_ylabel("ruin probability")
+    axis.set_ylim(0.0, 1.0)
+    axis.set_title("Markov-modulated multirisk ruin")
+    if len(result_list) > 1 or labels is not None:
+        axis.legend()
+    return axis
+
+
+def plot_environment_state_survival(
+    result: MarkovModulatedRuinResult,
+    *,
+    ax: Axes | None = None,
+    normalize: bool = False,
+) -> Axes:
+    """Plot surviving probability mass by Markov environment state."""
+
+    if not isinstance(result, MarkovModulatedRuinResult):
+        raise TypeError("result must be a MarkovModulatedRuinResult")
+    values = np.asarray(result.survival_by_state, dtype=float)
+    if values.ndim != 2:
+        raise ValueError("result.survival_by_state must be two-dimensional")
+    if normalize:
+        totals = np.sum(values, axis=1, keepdims=True)
+        values = np.divide(values, totals, out=np.zeros_like(values), where=totals > 0.0)
+
+    periods = np.arange(values.shape[0])
+    axis = _axis(ax)
+    for state in range(values.shape[1]):
+        axis.plot(periods, values[:, state], linewidth=1.8, marker="o", label=f"state {state + 1}")
+    axis.set_xlabel("period")
+    axis.set_ylabel("conditional mass" if normalize else "surviving mass")
+    axis.set_title("Survival by environment state")
+    axis.legend()
+    return axis
+
+
+def plot_dependence_impact(
+    impact: DependenceImpactResult,
+    *,
+    ax: Axes | None = None,
+) -> Axes:
+    """Plot the ruin-probability difference between dependence scenarios."""
+
+    if not isinstance(impact, DependenceImpactResult):
+        raise TypeError("impact must be a DependenceImpactResult")
+    axis = _axis(ax)
+    colors = np.where(impact.difference >= 0.0, "#b00020", "#0b6e4f")
+    axis.bar(impact.periods, impact.difference, color=colors, alpha=0.84)
+    axis.axhline(0.0, color="#222222", linewidth=1.0)
+    axis.set_xlabel("period")
+    axis.set_ylabel(f"{impact.comparison_label} - {impact.reference_label}")
+    axis.set_title("Dependence impact")
+    return axis
+
+
+def plot_solvency_region_2d(
+    initial_capitals: ArrayLike,
+    premiums: ArrayLike,
+    *,
+    period: int,
+    region: str = "any_line",
+    severity_limit: float | ArrayLike = 0.0,
+    ax: Axes | None = None,
+    grid_size: int = 160,
+) -> Axes:
+    """Plot a two-line solvency region in aggregate-claim coordinates."""
+
+    initial = _as_1d_float(initial_capitals, "initial_capitals")
+    premium = _as_1d_float(premiums, "premiums")
+    if initial.size != 2 or premium.size != 2:
+        raise ValueError("initial_capitals and premiums must have length two")
+    if np.any(initial < 0.0) or np.any(premium < 0.0):
+        raise ValueError("initial_capitals and premiums must be non-negative")
+    inventory = int(period)
+    if inventory != period or inventory <= 0:
+        raise ValueError("period must be a positive integer")
+    size = int(grid_size)
+    if size <= 1:
+        raise ValueError("grid_size must be greater than one")
+
+    boundary = initial + inventory * premium
+    upper = max(float(np.max(boundary) * 1.6), 1.0)
+    x = np.linspace(0.0, upper, size)
+    y = np.linspace(0.0, upper, size)
+    xx, yy = np.meshgrid(x, y)
+    if region == "any_line":
+        mask = (xx <= boundary[0]) & (yy <= boundary[1])
+    elif region == "total":
+        mask = xx + yy <= np.sum(boundary)
+    elif region == "hybrid":
+        limit = np.asarray(severity_limit, dtype=float)
+        if limit.ndim == 0:
+            limit = np.full(2, float(limit))
+        if limit.shape != boundary.shape:
+            raise ValueError("severity_limit must be scalar or have length two")
+        mask = (
+            (xx + yy <= np.sum(boundary))
+            & (xx <= boundary[0] + limit[0])
+            & (yy <= boundary[1] + limit[1])
+        )
+    else:
+        solvency_region(region, severity_limit=severity_limit)
+        raise ValueError("region must be 'any_line', 'total' or 'hybrid'")
+
+    axis = _axis(ax)
+    axis.pcolormesh(x, y, mask.astype(float), shading="auto", cmap="Greens", alpha=0.45)
+    axis.axvline(boundary[0], color="#4c78a8", linewidth=1.4, linestyle="--")
+    axis.axhline(boundary[1], color="#4c78a8", linewidth=1.4, linestyle="--")
+    axis.plot([0.0, float(np.sum(boundary))], [float(np.sum(boundary)), 0.0], color="#b00020")
+    axis.set_xlim(0.0, upper)
+    axis.set_ylim(0.0, upper)
+    axis.set_xlabel("aggregate claims line 1")
+    axis.set_ylabel("aggregate claims line 2")
+    axis.set_title(f"Solvency region: {region}")
     return axis
 
 

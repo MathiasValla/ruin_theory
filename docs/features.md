@@ -1361,6 +1361,122 @@ plot_two_line_allocation_curve(
 plot_simplex_allocation_surface(surface)
 ```
 
+## Markov-Modulated Multirisk Common Shocks
+
+This block implements the finite-horizon lattice recursion used in the
+Markov-modulated multivariate compound Poisson model with common shocks. The
+environment is a finite Markov chain observed at inventory dates. Conditional on
+the current environment state, each shock type has its own Poisson intensity and
+joint claim-vector distribution. Claims are accumulated by business line, then a
+solvency-region predicate decides whether the path survives the inventory date.
+
+The current implementation is exact for finite vector PMFs. When a
+compound-Poisson shock is built from an event PMF, the Poisson event count is
+truncated by `max_count`; the returned `truncation_error_bounds` track that
+controlled approximation.
+
+Model-building functions:
+
+- `MarkovEnvironment(initial_distribution, transition_matrix)`: finite Markov
+  environment. The transition matrix is row-stochastic.
+- `transition_matrix_from_generator(generator, step=1)`: converts a
+  continuous-time generator into an inventory-date transition matrix using a
+  matrix exponential.
+- `CommonShock(intensities, claim_pmfs, name="shock")`: one shock family. Pass
+  either one joint vector PMF shared across states or one PMF per environment
+  state.
+- `independent_common_shock_pmf(activation_probabilities, severity_pmfs)`:
+  builds a joint claim-vector PMF from independent branch activations and
+  branch severity PMFs.
+- `convolve_vector_pmfs(first, second)`: multivariate lattice convolution.
+- `compound_poisson_vector_pmf(event_pmf, mean, max_count=32,
+  tail_tolerance=1e-12)`: truncated compound-Poisson vector PMF.
+- `common_shock_increment_pmfs(shocks, period_length=1, max_count=32,
+  tail_tolerance=1e-12)`: one aggregate increment PMF per environment state.
+
+Ruin and dependence functions:
+
+- `finite_time_markov_modulated_ruin(increment_pmfs, environment,
+  initial_capitals, premiums, horizon, region="any_line",
+  severity_limit=0, truncation_error_bounds=None)`: finite-time ruin
+  recursion.
+- `solvency_region(kind="any_line", severity_limit=0)`: standard predicates.
+  `"any_line"` means every line remains solvent; `"total"` means total wealth
+  remains solvent; `"hybrid"` combines total solvency and linewise severity
+  limits.
+- `dependence_impact(reference, comparison, reference_label="reference",
+  comparison_label="comparison")`: periodwise difference between two ruin
+  curves, useful for reproducing the dependence paradox discussed by Loisel:
+  positive dependence can reduce the probability that at least one branch is
+  ruined.
+
+Arguments:
+
+- `increment_pmfs`: sequence of joint lattice PMFs, one per environment state.
+  Keys are non-negative integer vectors, values are probabilities.
+- `initial_capitals`: initial reserve vector.
+- `premiums`: premium income per period and per line.
+- `horizon`: positive integer number of inventory periods.
+- `region`: one of the built-in region names or a callable
+  `region(claims, boundary, period) -> bool`.
+- `severity_limit`: scalar or vector limit used by the built-in hybrid region.
+- `truncation_error_bounds`: optional statewise error bounds, normally obtained
+  from `common_shock_increment_pmfs`.
+
+Minimal example:
+
+```python
+from ruin_theory import (
+    CommonShock,
+    MarkovEnvironment,
+    common_shock_increment_pmfs,
+    dependence_impact,
+    finite_time_markov_modulated_ruin,
+    plot_dependence_impact,
+    transition_matrix_from_generator,
+)
+
+environment = MarkovEnvironment(
+    initial_distribution=[1.0, 0.0],
+    transition_matrix=transition_matrix_from_generator([[-0.4, 0.4], [0.2, -0.2]]),
+)
+weather = CommonShock(
+    intensities=[0.25, 0.6],
+    claim_pmfs=(
+        {(0, 0): 0.7, (2, 0): 0.15, (0, 2): 0.15},
+        {(0, 0): 0.45, (2, 2): 0.55},
+    ),
+)
+increments = common_shock_increment_pmfs([weather], max_count=10)
+
+result = finite_time_markov_modulated_ruin(
+    increments.increment_pmfs,
+    environment,
+    initial_capitals=[3.0, 3.0],
+    premiums=[0.7, 0.7],
+    horizon=6,
+    region="any_line",
+    truncation_error_bounds=increments.truncation_error_bounds,
+)
+print(result.ruin_probabilities[-1], result.truncation_error_bound)
+
+independent = finite_time_markov_modulated_ruin(
+    [{(0, 0): 0.25, (2, 0): 0.25, (0, 2): 0.25, (2, 2): 0.25}],
+    MarkovEnvironment([1.0], [[1.0]]),
+    initial_capitals=[1.0, 1.0],
+    premiums=[0.0, 0.0],
+    horizon=1,
+)
+dependent = finite_time_markov_modulated_ruin(
+    [{(0, 0): 0.5, (2, 2): 0.5}],
+    MarkovEnvironment([1.0], [[1.0]]),
+    initial_capitals=[1.0, 1.0],
+    premiums=[0.0, 0.0],
+    horizon=1,
+)
+plot_dependence_impact(dependence_impact(independent, dependent))
+```
+
 ## Gerber-Shiu Diagnostics
 
 The Gerber-Shiu diagnostic layer estimates the finite-horizon discounted
@@ -1497,6 +1613,14 @@ Available diagnostics:
   along a two-line allocation simplex.
 - `plot_simplex_allocation_surface(grid, ax=None, colorbar=True)`: three-line
   allocation objective in simplex coordinates.
+- `plot_markov_modulated_ruin_curves(results, ax=None, labels=None)`:
+  periodwise multirisk ruin probabilities for one or several scenarios.
+- `plot_environment_state_survival(result, ax=None, normalize=False)`:
+  surviving probability mass by Markov environment state.
+- `plot_dependence_impact(impact, ax=None)`: difference between two ruin curves
+  under different dependence assumptions.
+- `plot_solvency_region_2d(initial_capitals, premiums, period, region, ...)`:
+  solvency region in two-line aggregate-claim coordinates.
 - `plot_integer_byclaim_path(path, ax=None, show_ruin=True)`: discrete
   INAR/BINAR reserve trajectory.
 - `plot_integer_byclaim_counts(path, ax=None, kind="byclaim")`: primary or
@@ -1609,6 +1733,9 @@ Implemented now:
   identity checks, Poisson-exponential infinite-horizon closed forms,
   dependence-sensitive multirisk red-time measures and optimal reserve
   allocation by equalizing active-line red times.
+- Markov-modulated multirisk finite-time recursions with common shocks,
+  arbitrary solvency regions, statewise compound-Poisson vector increments and
+  dependence-impact diagnostics.
 - Phase-type severity distributions and exact Cramer-Lundberg ultimate ruin
   probabilities for phase-type primary claims.
 - Loss moments, coverage transformations and lattice discretization.
@@ -1631,6 +1758,8 @@ Planned extensions:
 - Matrix-exponential extensions beyond standard phase-type severities.
 - Phase-type renewal waits and matrix-valued finite-time ruin solvers.
 - Matrix-valued/closed-form Gerber-Shiu solvers beyond simulation diagnostics.
+- Markov-modulated multirisk dividend and insolvency-penalty solvers with
+  finite-state CTMC approximations for interacting secondary branches.
 - Continuous-severity Appell/pseudo-polynomial extensions beyond lattice or
   discretized inputs.
 - Larger curated reproduction notebooks for every numerical table in

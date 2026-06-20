@@ -15,8 +15,11 @@ from ruin_theory.plotting import (
     plot_barrier_dividend_distribution,
     plot_barrier_dividend_path,
     plot_barrier_ruin_time_distribution,
+    plot_dependence_impact,
+    plot_environment_state_survival,
     plot_integer_byclaim_counts,
     plot_integer_byclaim_path,
+    plot_markov_modulated_ruin_curves,
     plot_maximum_before_default_hazard,
     plot_deficit_at_ruin,
     plot_discrete_time_deficit_cdf,
@@ -36,6 +39,7 @@ from ruin_theory.plotting import (
     plot_ruin_curve,
     plot_ruin_time_histogram,
     plot_simplex_allocation_surface,
+    plot_solvency_region_2d,
     plot_two_line_allocation_curve,
     plot_surplus_before_ruin,
     plot_terminal_reserve_distribution,
@@ -45,9 +49,12 @@ from ruin_theory.plotting import (
 from ruin_theory import (
     BINARByClaimModel,
     INARByClaimModel,
+    MarkovEnvironment,
     RedTimeCurveResult,
+    dependence_impact,
     deterministic,
     evaluate_reserve_allocation_grid,
+    finite_time_markov_modulated_ruin,
     finite_time_ruin_discrete_appell,
     finite_time_ruin_discrete_boundary,
     finite_time_ruin_discrete_inventory,
@@ -295,6 +302,68 @@ def test_plot_red_time_and_allocation_diagnostics():
         plot_two_line_allocation_curve(simplex)
     with pytest.raises(ValueError, match=r"\(n, 3\)"):
         plot_simplex_allocation_surface(two_line)
+
+
+def test_plot_markov_modulated_common_shock_diagnostics():
+    environment = MarkovEnvironment([1.0], [[1.0]])
+    independent = [{(0, 0): 0.25, (2, 0): 0.25, (0, 2): 0.25, (2, 2): 0.25}]
+    dependent = [{(0, 0): 0.5, (2, 2): 0.5}]
+    independent_result = finite_time_markov_modulated_ruin(
+        independent,
+        environment,
+        initial_capitals=[1.0, 1.0],
+        premiums=[0.0, 0.0],
+        horizon=1,
+        region="any_line",
+    )
+    dependent_result = finite_time_markov_modulated_ruin(
+        dependent,
+        environment,
+        initial_capitals=[1.0, 1.0],
+        premiums=[0.0, 0.0],
+        horizon=1,
+        region="any_line",
+    )
+    impact = dependence_impact(
+        independent_result,
+        dependent_result,
+        reference_label="independent",
+        comparison_label="positive dependence",
+    )
+
+    fig, axes = plt.subplots(2, 2)
+    try:
+        ruin_axis = plot_markov_modulated_ruin_curves(
+            [independent_result, dependent_result],
+            ax=axes[0, 0],
+            labels=["independent", "positive dependence"],
+        )
+        state_axis = plot_environment_state_survival(independent_result, ax=axes[0, 1])
+        impact_axis = plot_dependence_impact(impact, ax=axes[1, 0])
+        region_axis = plot_solvency_region_2d(
+            [1.0, 1.0],
+            [0.0, 0.0],
+            period=1,
+            region="hybrid",
+            severity_limit=1.0,
+            ax=axes[1, 1],
+            grid_size=20,
+        )
+
+        assert ruin_axis.get_title() == "Markov-modulated multirisk ruin"
+        assert ruin_axis.get_legend() is not None
+        assert state_axis.get_ylabel() == "surviving mass"
+        assert impact_axis.get_ylabel() == "positive dependence - independent"
+        assert region_axis.get_title() == "Solvency region: hybrid"
+    finally:
+        plt.close(fig)
+
+    with pytest.raises(TypeError, match="MarkovModulatedRuinResult"):
+        plot_environment_state_survival(object())
+    with pytest.raises(ValueError, match="labels"):
+        plot_markov_modulated_ruin_curves([independent_result], labels=["a", "b"])
+    with pytest.raises(ValueError, match="length two"):
+        plot_solvency_region_2d([1.0], [0.0], period=1)
 
 
 def test_plot_terminal_reserve_distribution_marks_zero_and_quantiles():

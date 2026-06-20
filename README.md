@@ -33,6 +33,8 @@ published actuarial software examples used as numerical reference checks.
   barrier hitting probabilities, cumulative dividends and ruin-time plots.
 - [Time-in-red allocation example](examples/red_time_allocation.py):
   Loisel red-time curves, negative-area criteria and reserve-allocation plots.
+- [Markov-modulated common shocks example](examples/markov_modulated_common_shocks.py):
+  finite-time multirisk recursion, solvency regions and dependence-impact plots.
 
 ## Quick start
 
@@ -107,6 +109,9 @@ Cramer-Lundberg primary-claim models with linear severity scaling:
 - time-in-red and integrated-negative-part diagnostics, Loisel derivative
   identity checks, Poisson-exponential infinite-horizon closed forms and
   optimal reserve allocation by equalizing active-line red times;
+- Markov-modulated multirisk finite-time recursions with common shocks,
+  arbitrary solvency regions, statewise vector compound-Poisson increments and
+  dependence-impact plots;
 - Lundberg adjustment coefficients, bounds and light-tail asymptotics;
 - Pollaczek-Khinchine Monte Carlo via equilibrium claim sampling;
 - discrete Pollaczek-Khinchine/Panjer approximations for ultimate ruin;
@@ -129,10 +134,10 @@ Cramer-Lundberg primary-claim models with linear severity scaling:
 Sparre-Andersen arrivals, by-claims, INAR/BINAR dependent by-claims, capital
 injections and nonlinear prevention are available in simulation and prevention
 optimization.
-Markov-modulated methods and matrix-valued/closed-form Gerber-Shiu solvers are
-planned extensions beyond the current simulation diagnostics. The two-claim-type
-prevention model remains planned beyond the current single-risk and periodic
-prevention optimizers. Premium-dependent finite-time dynamics and richer
+Matrix-valued/closed-form Gerber-Shiu solvers remain planned beyond the current
+simulation diagnostics. The two-claim-type prevention model remains planned
+beyond the current single-risk and periodic prevention optimizers.
+Premium-dependent finite-time dynamics and richer
 matrix-valued dependence solvers remain planned beyond the current lattice
 finite-time formulas; the detailed finite-time implementation roadmap is in
 `docs/features.md`.
@@ -149,6 +154,9 @@ Ignatov, Kaishev and Krachunov (2001), and the finite-horizon reviews and
 extensions by Lefevre and Loisel.
 Time-in-red and reserve-allocation diagnostics follow dos Reis (1993), Gerber
 (1988), Loisel (2005), and Dickson and dos Reis (1996).
+Markov-modulated multirisk common-shock recursions and dependence diagnostics
+follow Picard, Lefevre and Coulibaly (2003), Loisel (2004, 2005), and related
+work by Cossette, Landriault and Marceau.
 Prevention features are guided by Ehrlich and Becker (1972), Gauchon et al.
 (2020, 2021), Schmidli (2008), and the seasonal-prevention manuscript by
 Minier, Valla and Lefevre, with heavy-tail periodic prevention following the

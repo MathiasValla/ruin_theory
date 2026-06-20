@@ -112,6 +112,36 @@ features in scientific work.
 - Loisel, S. (2005). Differentiation of some functionals of risk processes and
   optimal reserve allocation. *Journal of Applied Probability*, 42(2).
 
+## Markov-Modulated Multirisk Common Shocks
+
+- Asmussen, S., and Hojgaard, B. (1996). Finite horizon ruin probabilities for
+  Markov-modulated risk processes with heavy tails. *Theory of Random
+  Processes*, 2, 96-107.
+- Baeuerle, N. (1996). Some results about the expected ruin time in
+  Markov-modulated risk models. *Insurance: Mathematics and Economics*,
+  18(2), 119-127.
+- Collamore, J. F. (1998). First passage times of general sequences of random
+  vectors: a large deviations approach. *Stochastic Processes and their
+  Applications*, 78(1), 97-130.
+- Cossette, H., Landriault, D., and Marceau, E. (2003). Ruin probabilities in
+  the compound Markov binomial model. *Scandinavian Actuarial Journal*,
+  2003(4), 301-323.
+- Cossette, H., Marceau, E. (2000). The discrete-time risk model with
+  correlated classes of business. *Insurance: Mathematics and Economics*,
+  26(2-3), 133-149.
+- Lindskog, F., and McNeil, A. J. (2003). Common Poisson shock models:
+  applications to insurance and credit risk modelling. *ASTIN Bulletin*,
+  33(2), 209-238.
+- Loisel, S. (2004). Finite-time ruin probabilities in the Markov-modulated
+  multivariate compound Poisson model with common shocks, and impact of
+  dependence. Working paper, University Lyon 1.
+- Picard, P., Lefevre, C., and Coulibaly, I. (2003). Multirisks model and
+  finite-time ruin probabilities. *Methodology and Computing in Applied
+  Probability*, 5(3), 337-353.
+- Picard, P., Lefevre, C., and Coulibaly, I. (2003). Problemes de ruine en
+  theorie du risque a temps discret avec horizon fini. *Journal of Applied
+  Probability*, 40(3), 527-542.
+
 ## Actuarial Software References
 
 - Dutang, C., Goulet, V., and Pigeon, M. (2008). actuar: An R package for
