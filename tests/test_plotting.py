@@ -31,8 +31,12 @@ from ruin_theory.plotting import (
     plot_paths,
     plot_periodic_pressure,
     plot_prevention_calendar,
+    plot_red_time_allocation,
+    plot_red_time_curve,
     plot_ruin_curve,
     plot_ruin_time_histogram,
+    plot_simplex_allocation_surface,
+    plot_two_line_allocation_curve,
     plot_surplus_before_ruin,
     plot_terminal_reserve_distribution,
     plot_win_first_sensitivity,
@@ -41,7 +45,9 @@ from ruin_theory.plotting import (
 from ruin_theory import (
     BINARByClaimModel,
     INARByClaimModel,
+    RedTimeCurveResult,
     deterministic,
+    evaluate_reserve_allocation_grid,
     finite_time_ruin_discrete_appell,
     finite_time_ruin_discrete_boundary,
     finite_time_ruin_discrete_inventory,
@@ -50,9 +56,11 @@ from ruin_theory import (
     finite_time_discrete_time_ruin,
     finite_time_lundberg_bounds,
     gerber_shiu_from_paths,
+    optimize_reserve_allocation,
     simulate_binar_byclaim_path,
     simulate_barrier_dividend_path,
     simulate_inar_byclaim_path,
+    simplex_reserve_grid,
 )
 from ruin_theory.prevention import optimize_periodic_prevention_calendar
 from ruin_theory.results import RuinEstimate, SimulationPath
@@ -237,6 +245,56 @@ def test_plot_barrier_dividend_diagnostics():
         plot_barrier_dividend_distribution([-1.0])
     with pytest.raises(ValueError, match="positive"):
         plot_barrier_comparison([0.0], [1.0])
+
+
+def test_plot_red_time_and_allocation_diagnostics():
+    curve = RedTimeCurveResult(
+        initial_capitals=np.array([0.0, 1.0, 2.0]),
+        expected_time_in_red=np.array([1.0, 0.5, 0.25]),
+        expected_negative_area=np.array([2.0, 0.7, 0.2]),
+        time_in_red_standard_error=np.zeros(3),
+        negative_area_standard_error=np.zeros(3),
+        n_simulations=10,
+        horizon=3.0,
+    )
+    allocation = optimize_reserve_allocation(
+        total_reserve=2.0,
+        red_time_functions=(lambda u: np.exp(-u), lambda u: np.exp(-u)),
+        negative_area_functions=(lambda u: np.exp(-u), lambda u: np.exp(-u)),
+    )
+    two_line_grid = simplex_reserve_grid(total_reserve=2.0, n_lines=2, subdivisions=4)
+    two_line = evaluate_reserve_allocation_grid(
+        two_line_grid,
+        (lambda u: np.exp(-u), lambda u: np.exp(-u)),
+    )
+    simplex_grid = simplex_reserve_grid(total_reserve=2.0, n_lines=3, subdivisions=2)
+    simplex = evaluate_reserve_allocation_grid(
+        simplex_grid,
+        (lambda u: np.exp(-u), lambda u: np.exp(-u), lambda u: np.exp(-u)),
+    )
+
+    fig, axes = plt.subplots(2, 2)
+    try:
+        curve_axis = plot_red_time_curve(curve, ax=axes[0, 0])
+        allocation_axis = plot_red_time_allocation(allocation, ax=axes[0, 1])
+        two_line_axis = plot_two_line_allocation_curve(two_line, ax=axes[1, 0])
+        simplex_axis = plot_simplex_allocation_surface(simplex, ax=axes[1, 1])
+
+        assert curve_axis.get_title() == "Time in red"
+        assert allocation_axis.get_ylabel() == "allocated reserve"
+        assert two_line_axis.get_xlabel() == "line 1 reserve"
+        assert simplex_axis.get_title() == "Allocation simplex objective"
+    finally:
+        plt.close(fig)
+
+    with pytest.raises(TypeError, match="RedTimeCurveResult"):
+        plot_red_time_curve(object())
+    with pytest.raises(TypeError, match="ReserveAllocationResult"):
+        plot_red_time_allocation(object())
+    with pytest.raises(ValueError, match=r"\(n, 2\)"):
+        plot_two_line_allocation_curve(simplex)
+    with pytest.raises(ValueError, match=r"\(n, 3\)"):
+        plot_simplex_allocation_surface(two_line)
 
 
 def test_plot_terminal_reserve_distribution_marks_zero_and_quantiles():

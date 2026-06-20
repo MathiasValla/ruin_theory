@@ -100,6 +100,18 @@ features in scientific work.
 - Avanzi, B. (2009). Strategies for dividend distribution: A review. *North
   American Actuarial Journal*, 13(2), 217-251.
 
+## Time In Red And Reserve Allocation
+
+- dos Reis, A. E. (1993). How long is the surplus below zero? *Insurance:
+  Mathematics and Economics*, 12(1), 23-38.
+- Gerber, H. U. (1988). Mathematical fun with ruin theory. *Insurance:
+  Mathematics and Economics*, 7(1), 15-23.
+- Dickson, D. C. M., and dos Reis, A. E. (1996). On the distribution of the
+  duration of negative surplus. *Scandinavian Actuarial Journal*, 1996(2),
+  148-164.
+- Loisel, S. (2005). Differentiation of some functionals of risk processes and
+  optimal reserve allocation. *Journal of Applied Probability*, 42(2).
+
 ## Actuarial Software References
 
 - Dutang, C., Goulet, V., and Pigeon, M. (2008). actuar: An R package for

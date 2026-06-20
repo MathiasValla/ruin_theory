@@ -31,6 +31,8 @@ published actuarial software examples used as numerical reference checks.
   finite-horizon discounted penalties with deficit/surplus plots.
 - [Dividend-barrier diagnostics example](examples/barrier_dividends.py):
   barrier hitting probabilities, cumulative dividends and ruin-time plots.
+- [Time-in-red allocation example](examples/red_time_allocation.py):
+  Loisel red-time curves, negative-area criteria and reserve-allocation plots.
 
 ## Quick start
 
@@ -102,6 +104,9 @@ Cramer-Lundberg primary-claim models with linear severity scaling:
   maximum-before-default hazards and sensitivity plots;
 - horizontal dividend-barrier analytics, geometric/renewal dividend
   distributions, path simulation and comparison plots;
+- time-in-red and integrated-negative-part diagnostics, Loisel derivative
+  identity checks, Poisson-exponential infinite-horizon closed forms and
+  optimal reserve allocation by equalizing active-line red times;
 - Lundberg adjustment coefficients, bounds and light-tail asymptotics;
 - Pollaczek-Khinchine Monte Carlo via equilibrium claim sampling;
 - discrete Pollaczek-Khinchine/Panjer approximations for ultimate ruin;
@@ -142,6 +147,8 @@ Finite-time discrete formulas follow Picard and Lefevre (1997, 1998),
 Rulliere and Loisel (2004), Seal (1969), Takacs (1962), De Vylder (1999),
 Ignatov, Kaishev and Krachunov (2001), and the finite-horizon reviews and
 extensions by Lefevre and Loisel.
+Time-in-red and reserve-allocation diagnostics follow dos Reis (1993), Gerber
+(1988), Loisel (2005), and Dickson and dos Reis (1996).
 Prevention features are guided by Ehrlich and Becker (1972), Gauchon et al.
 (2020, 2021), Schmidli (2008), and the seasonal-prevention manuscript by
 Minier, Valla and Lefevre, with heavy-tail periodic prevention following the

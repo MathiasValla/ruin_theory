@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Iterable
 
 import numpy as np
@@ -26,6 +27,7 @@ from .finite_discrete_time import (
 from .dividends import BarrierDividendPath
 from .integer_byclaims import IntegerByClaimPath
 from .prevention import PeriodicPreventionResult
+from .red_time import AllocationGridResult, RedTimeCurveResult, ReserveAllocationResult
 from .results import GerberShiuResult, RuinEstimate, SimulationPath
 
 
@@ -840,6 +842,133 @@ def plot_barrier_comparison(
     axis.set_title("Dividend-barrier comparison")
     if label:
         axis.legend()
+    return axis
+
+
+def plot_red_time_curve(
+    curve: RedTimeCurveResult,
+    *,
+    ax: Axes | None = None,
+    show_negative_area: bool = True,
+) -> Axes:
+    """Plot expected time in red and optionally integrated negative area."""
+
+    if not isinstance(curve, RedTimeCurveResult):
+        raise TypeError("curve must be a RedTimeCurveResult")
+    capital = _as_1d_float(curve.initial_capitals, "initial_capitals")
+    red_time = _as_1d_float(curve.expected_time_in_red, "expected_time_in_red")
+    if red_time.shape != capital.shape:
+        raise ValueError("expected_time_in_red must match initial_capitals")
+
+    axis = _axis(ax)
+    axis.plot(capital, red_time, color="#b00020", linewidth=2.0, marker="o", label="E[tau]")
+    axis.set_xlabel("initial reserve")
+    axis.set_ylabel("expected time in red")
+    axis.set_title("Time in red")
+    if show_negative_area:
+        negative_area = _as_1d_float(curve.expected_negative_area, "expected_negative_area")
+        if negative_area.shape != capital.shape:
+            raise ValueError("expected_negative_area must match initial_capitals")
+        twin = axis.twinx()
+        twin.plot(
+            capital,
+            negative_area,
+            color="#4c78a8",
+            linewidth=1.8,
+            marker="s",
+            label="E[I]",
+        )
+        twin.set_ylabel("expected negative area")
+    return axis
+
+
+def plot_red_time_allocation(
+    result: ReserveAllocationResult,
+    *,
+    ax: Axes | None = None,
+) -> Axes:
+    """Plot reserve allocation and red-time equalization diagnostics."""
+
+    if not isinstance(result, ReserveAllocationResult):
+        raise TypeError("result must be a ReserveAllocationResult")
+    allocations = _as_1d_float(result.allocations, "allocations")
+    red_times = _as_1d_float(result.red_times, "red_times")
+    if allocations.shape != red_times.shape:
+        raise ValueError("allocations and red_times must have matching shapes")
+
+    x = np.arange(allocations.size)
+    axis = _axis(ax)
+    colors = np.where(result.active, "#4c78a8", "#b8b8b8")
+    axis.bar(x, allocations, color=colors, alpha=0.86)
+    axis.set_xticks(x)
+    axis.set_xticklabels([f"line {index + 1}" for index in x])
+    axis.set_ylabel("allocated reserve")
+    axis.set_title("Optimal reserve allocation")
+    twin = axis.twinx()
+    twin.plot(x, red_times, color="#b00020", linewidth=1.8, marker="o")
+    twin.axhline(result.threshold, color="#222222", linewidth=1.0, linestyle=":")
+    twin.set_ylabel("expected time in red")
+    return axis
+
+
+def plot_two_line_allocation_curve(
+    grid: AllocationGridResult,
+    *,
+    ax: Axes | None = None,
+    label: str | None = None,
+) -> Axes:
+    """Plot objective values along a two-line reserve allocation."""
+
+    if not isinstance(grid, AllocationGridResult):
+        raise TypeError("grid must be an AllocationGridResult")
+    allocations = np.asarray(grid.allocations, dtype=float)
+    values = _as_1d_float(grid.objective_values, "objective_values")
+    if allocations.ndim != 2 or allocations.shape[1] != 2 or allocations.shape[0] != values.size:
+        raise ValueError("grid.allocations must have shape (n, 2)")
+
+    order = np.argsort(allocations[:, 0])
+    axis = _axis(ax)
+    axis.plot(
+        allocations[order, 0],
+        values[order],
+        color="#0b6e4f",
+        linewidth=2.0,
+        marker="o",
+        label=label,
+    )
+    axis.set_xlabel("line 1 reserve")
+    axis.set_ylabel("sum expected negative areas")
+    axis.set_title("Two-line allocation objective")
+    if label:
+        axis.legend()
+    return axis
+
+
+def plot_simplex_allocation_surface(
+    grid: AllocationGridResult,
+    *,
+    ax: Axes | None = None,
+    colorbar: bool = True,
+) -> Axes:
+    """Plot a three-line allocation objective on simplex coordinates."""
+
+    if not isinstance(grid, AllocationGridResult):
+        raise TypeError("grid must be an AllocationGridResult")
+    allocations = np.asarray(grid.allocations, dtype=float)
+    values = _as_1d_float(grid.objective_values, "objective_values")
+    if allocations.ndim != 2 or allocations.shape[1] != 3 or allocations.shape[0] != values.size:
+        raise ValueError("grid.allocations must have shape (n, 3)")
+
+    x = allocations[:, 1] + 0.5 * allocations[:, 2]
+    y = math.sqrt(3.0) * allocations[:, 2] / 2.0
+    axis = _axis(ax)
+    scatter = axis.scatter(x, y, c=values, cmap="viridis", s=34, edgecolors="none")
+    if colorbar:
+        axis.figure.colorbar(scatter, ax=axis, label="sum expected negative areas")
+    axis.set_aspect("equal", adjustable="box")
+    axis.set_xticks([])
+    axis.set_yticks([])
+    axis.set_title("Allocation simplex objective")
     return axis
 
 

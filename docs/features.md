@@ -1253,6 +1253,114 @@ expected = [
 plot_barrier_comparison(barriers, expected, ax=axes[1, 1])
 ```
 
+## Time In Red And Reserve Allocation
+
+This block implements the fixed-horizon functionals used by Loisel for red-time
+risk measurement and optimal allocation of an aggregate initial reserve:
+
+```text
+tau_T(u) = int_0^T 1{u + X_t < 0} dt
+I_T(u)   = int_0^T |u + X_t| 1{u + X_t < 0} dt.
+```
+
+The package computes these quantities exactly on simulated piecewise-linear
+paths, estimates their expectations by Monte Carlo, checks the identity
+`d E[I_T(u)] / du = -E[tau_T(u)]`, and solves the allocation condition that
+equalizes average times in red across active lines.
+
+Path and expectation functions:
+
+- `red_time_metrics_from_path(path, reserve_shift=0)`: exact pathwise
+  `tau_T`, `I_T`, minimum reserve and horizon from a `SimulationPath`.
+- `multiline_red_time_metrics_from_paths(paths)`: synchronized multirisk
+  metrics, including the dependence-sensitive sum
+  `sum_k int 1{R_k(t)<0} 1{sum_j R_j(t)>0} dt`.
+- `estimate_red_time_metrics(model, horizon, n_simulations=10000, seed=None,
+  max_events=1000000)`: Monte Carlo estimate returned as `RedTimeEstimate`.
+- `estimate_red_time_curve(model, initial_capitals, horizon,
+  n_simulations=10000, seed=None, max_events=1000000)`: estimated
+  `E[tau_T(u)]` and `E[I_T(u)]` over reserve levels.
+- `negative_area_derivative_identity_error(path, reserve_shift=0, step=1e-4)`:
+  finite-difference check of Loisel's derivative identity.
+- `expected_time_in_red_exponential(initial_capital, premium_rate,
+  claim_arrival_rate, claim_rate)`: infinite-horizon closed form in the
+  Poisson-exponential case with positive safety loading.
+- `expected_negative_area_exponential(...)`: corresponding closed form for
+  `E[I_infinity(u)]`.
+
+Allocation functions:
+
+- `optimize_reserve_allocation(total_reserve, red_time_functions,
+  negative_area_functions=None, lower_bounds=None, upper_bounds=None,
+  tolerance=1e-8, max_iterations=100)`: KKT/water-filling solver. Active
+  branches have equal expected times in red; safer inactive branches remain at
+  their lower bound.
+- `simplex_reserve_grid(total_reserve, n_lines, subdivisions=20,
+  lower_bounds=None)`: lattice on an allocation simplex.
+- `evaluate_reserve_allocation_grid(allocations, negative_area_functions,
+  red_time_functions=None)`: objective values `A=sum_k E[I_k]` and optional
+  red-time diagnostics on a grid.
+- `red_time_derivative(red_time_function, initial_capital, step=1e-4)` and
+  `multirisk_red_time_derivative_sum(allocations, red_time_functions,
+  step=1e-4)`: finite-difference sensitivity helpers for red-time criteria.
+
+Minimal example:
+
+```python
+import numpy as np
+from ruin_theory import (
+    RedTimeCurveResult,
+    evaluate_reserve_allocation_grid,
+    expected_negative_area_exponential,
+    expected_time_in_red_exponential,
+    optimize_reserve_allocation,
+    plot_red_time_allocation,
+    plot_red_time_curve,
+    plot_simplex_allocation_surface,
+    plot_two_line_allocation_curve,
+    simplex_reserve_grid,
+)
+
+params = [
+    dict(premium_rate=1.4, claim_arrival_rate=0.7, claim_rate=1.0),
+    dict(premium_rate=1.2, claim_arrival_rate=0.9, claim_rate=1.1),
+    dict(premium_rate=1.6, claim_arrival_rate=0.6, claim_rate=0.9),
+]
+red = tuple(lambda u, p=p: expected_time_in_red_exponential(u, **p) for p in params)
+area = tuple(lambda u, p=p: expected_negative_area_exponential(u, **p) for p in params)
+
+allocation = optimize_reserve_allocation(
+    total_reserve=6.0,
+    red_time_functions=red,
+    negative_area_functions=area,
+)
+print(allocation.allocations, allocation.red_times)
+
+grid = simplex_reserve_grid(total_reserve=6.0, n_lines=3, subdivisions=20)
+surface = evaluate_reserve_allocation_grid(grid, area, red_time_functions=red)
+
+capital = np.linspace(0.0, 8.0, 41)
+curve = RedTimeCurveResult(
+    initial_capitals=capital,
+    expected_time_in_red=expected_time_in_red_exponential(capital, **params[0]),
+    expected_negative_area=expected_negative_area_exponential(capital, **params[0]),
+    time_in_red_standard_error=np.zeros_like(capital),
+    negative_area_standard_error=np.zeros_like(capital),
+    n_simulations=0,
+    horizon=np.inf,
+)
+
+plot_red_time_curve(curve)
+plot_red_time_allocation(allocation)
+plot_two_line_allocation_curve(
+    evaluate_reserve_allocation_grid(
+        simplex_reserve_grid(total_reserve=6.0, n_lines=2),
+        area[:2],
+    )
+)
+plot_simplex_allocation_surface(surface)
+```
+
 ## Gerber-Shiu Diagnostics
 
 The Gerber-Shiu diagnostic layer estimates the finite-horizon discounted
@@ -1381,6 +1489,14 @@ Available diagnostics:
   histogram of finite ruin times from barrier simulations.
 - `plot_barrier_comparison(barriers, expected_dividends, ax=None, label=None)`:
   expected-dividend comparison across barrier levels.
+- `plot_red_time_curve(curve, ax=None, show_negative_area=True)`:
+  `E[tau]` and optional `E[I]` curve over initial reserve.
+- `plot_red_time_allocation(result, ax=None)`: allocated reserves with
+  equalized active-line red times.
+- `plot_two_line_allocation_curve(grid, ax=None, label=None)`: objective curve
+  along a two-line allocation simplex.
+- `plot_simplex_allocation_surface(grid, ax=None, colorbar=True)`: three-line
+  allocation objective in simplex coordinates.
 - `plot_integer_byclaim_path(path, ax=None, show_ruin=True)`: discrete
   INAR/BINAR reserve trajectory.
 - `plot_integer_byclaim_counts(path, ax=None, kind="byclaim")`: primary or
@@ -1489,6 +1605,10 @@ Implemented now:
 - Horizontal dividend-barrier hitting probabilities, continuation
   probabilities, renewal/geometric cumulative dividend formulas, reflected
   path simulation and comparison plots.
+- Time-in-red and integrated-negative-part functionals, Loisel derivative
+  identity checks, Poisson-exponential infinite-horizon closed forms,
+  dependence-sensitive multirisk red-time measures and optimal reserve
+  allocation by equalizing active-line red times.
 - Phase-type severity distributions and exact Cramer-Lundberg ultimate ruin
   probabilities for phase-type primary claims.
 - Loss moments, coverage transformations and lattice discretization.
