@@ -3,17 +3,31 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
+from dataclasses import dataclass
 import math
 import operator
 
 import numpy as np
+from numpy.typing import ArrayLike
 from scipy import stats
 
-from .models import RiskProcess
+from .models import CramerLundbergProcess, RiskProcess
 from .results import GerberShiuResult, SimulationPath
 from .simulation import simulate_path
 
 PenaltyFunction = Callable[[float, float], float]
+
+
+@dataclass(frozen=True)
+class GerberShiuExponentialClosedForm:
+    """Closed Gerber-Shiu transform for exponential Cramer-Lundberg claims."""
+
+    initial_capitals: np.ndarray
+    values: np.ndarray
+    discount_rate: float
+    deficit_moment_order: int
+    decay_rate: float
+    prefactor: float
 
 
 def _rng(seed: int | None | np.random.Generator) -> np.random.Generator:
@@ -48,6 +62,89 @@ def _penalty_function(penalty: PenaltyFunction | None) -> PenaltyFunction:
     if not callable(penalty):
         raise TypeError("penalty must be callable or None")
     return penalty
+
+
+def _surplus_array(values: ArrayLike, fallback: float) -> np.ndarray:
+    array = np.asarray(fallback if values is None else values, dtype=float)
+    if np.any(~np.isfinite(array)) or np.any(array < 0.0):
+        raise ValueError("initial surplus values must be finite and non-negative")
+    return array
+
+
+def gerber_shiu_exponential_closed_form(
+    model: CramerLundbergProcess,
+    u: ArrayLike | None = None,
+    *,
+    discount_rate: float = 0.0,
+    deficit_moment_order: int = 0,
+    return_result: bool = False,
+) -> np.ndarray | GerberShiuExponentialClosedForm:
+    """Closed form for `E[e^{-delta tau} D_tau^k; tau < inf]`.
+
+    Claims must be exponential and primary-only. For `k=0`, this is the
+    discounted ruin transform. For `k>0`, the exponential memoryless property
+    multiplies the transform by the `k`-th moment of the deficit at ruin.
+    """
+
+    if not isinstance(model, CramerLundbergProcess):
+        raise TypeError("model must be a CramerLundbergProcess")
+    if model.claim_distribution.name != "exponential":
+        raise ValueError("requires exponential claim sizes")
+    if model.by_claims or model.capital_injections:
+        raise ValueError("closed Gerber-Shiu formula requires primary claims only")
+    if model.prevention.frequency_windows or model.prevention.severity_transform is not None:
+        raise ValueError("closed Gerber-Shiu formula requires stationary linear prevention")
+    if model.premium_rate <= 0.0:
+        raise ValueError("premium_rate must be positive")
+    discount, _ = _validate_common(discount_rate, 0.95)
+    order = _positive_int(deficit_moment_order + 1, "deficit_moment_order + 1") - 1
+    surplus = _surplus_array(u, model.initial_capital)
+
+    scale = float(model.prevention.severity_multiplier)
+    if scale == 0.0 or model.claim_arrival_rate == 0.0:
+        values = np.zeros_like(surplus, dtype=float)
+        result = GerberShiuExponentialClosedForm(
+            initial_capitals=surplus.copy(),
+            values=values,
+            discount_rate=discount,
+            deficit_moment_order=order,
+            decay_rate=np.inf,
+            prefactor=0.0,
+        )
+        return result if return_result else values
+    claim_rate = float(model.claim_distribution.metadata["rate"]) / scale
+    arrival = float(model.claim_arrival_rate)
+    premium = float(model.premium_rate)
+    deficit_moment = math.factorial(order) / claim_rate**order
+
+    rho = arrival / (premium * claim_rate)
+    if discount == 0.0 and rho >= 1.0:
+        values = np.full_like(surplus, deficit_moment, dtype=float)
+        result = GerberShiuExponentialClosedForm(
+            initial_capitals=surplus.copy(),
+            values=values,
+            discount_rate=discount,
+            deficit_moment_order=order,
+            decay_rate=0.0,
+            prefactor=deficit_moment,
+        )
+        return result if return_result else values
+
+    linear = premium * claim_rate - arrival - discount
+    root = (linear + math.sqrt(linear * linear + 4.0 * premium * claim_rate * discount))
+    root /= 2.0 * premium
+    prefactor = (claim_rate - root) / claim_rate * deficit_moment
+    values = prefactor * np.exp(-root * surplus)
+    values = np.maximum(values, 0.0)
+    result = GerberShiuExponentialClosedForm(
+        initial_capitals=surplus.copy(),
+        values=values,
+        discount_rate=discount,
+        deficit_moment_order=order,
+        decay_rate=float(root),
+        prefactor=float(prefactor),
+    )
+    return result if return_result else values
 
 
 def _normal_interval(values: np.ndarray, ci_level: float) -> tuple[float, float, float]:

@@ -7,10 +7,14 @@ import pytest
 
 from ruin_theory import (
     CramerLundbergProcess,
+    GerberShiuExponentialClosedForm,
     GerberShiuResult,
     deterministic,
+    exponential,
     estimate_gerber_shiu,
+    gerber_shiu_exponential_closed_form,
     gerber_shiu_from_paths,
+    ultimate_ruin_exponential,
 )
 from ruin_theory.results import SimulationPath
 
@@ -77,6 +81,41 @@ def test_gerber_shiu_default_penalty_is_ruin_probability():
 
     assert result.estimate == pytest.approx(0.5)
     assert result.ci_method == "normal"
+
+
+def test_gerber_shiu_exponential_closed_form_matches_ultimate_ruin_probability():
+    model = CramerLundbergProcess(
+        premium_rate=1.0,
+        claim_arrival_rate=3.0,
+        claim_distribution=exponential(rate=5.0),
+    )
+    u = np.array([0.0, 1.0, 2.0])
+
+    result = gerber_shiu_exponential_closed_form(model, u, return_result=True)
+
+    assert isinstance(result, GerberShiuExponentialClosedForm)
+    np.testing.assert_allclose(result.values, ultimate_ruin_exponential(model, u))
+    assert result.discount_rate == 0.0
+    assert result.deficit_moment_order == 0
+    assert result.decay_rate == pytest.approx(2.0)
+    assert result.prefactor == pytest.approx(0.6)
+
+
+def test_gerber_shiu_exponential_deficit_moment_uses_memoryless_overshoot():
+    model = CramerLundbergProcess(
+        premium_rate=1.0,
+        claim_arrival_rate=3.0,
+        claim_distribution=exponential(rate=5.0),
+    )
+    u = np.array([0.0, 1.0, 2.0])
+
+    deficit_mean_transform = gerber_shiu_exponential_closed_form(
+        model,
+        u,
+        deficit_moment_order=1,
+    )
+
+    np.testing.assert_allclose(deficit_mean_transform, ultimate_ruin_exponential(model, u) / 5.0)
 
 
 def test_gerber_shiu_validates_inputs():

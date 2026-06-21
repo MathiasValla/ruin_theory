@@ -99,6 +99,42 @@ def _phase_type_inputs(
     return initial.copy(), matrix.copy(), np.maximum(exit_rates, 0.0)
 
 
+def _matrix_exponential_inputs(
+    initial_vector: ArrayLike,
+    matrix: ArrayLike,
+    exit_vector: ArrayLike | None,
+    *,
+    normalize: bool,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, float]:
+    initial = _finite_1d(initial_vector, "initial_vector")
+    generator = np.asarray(matrix, dtype=float)
+    if generator.ndim != 2 or generator.shape[0] != generator.shape[1] or generator.shape[0] == 0:
+        raise ValueError("matrix must be a non-empty square matrix")
+    if generator.shape[0] != initial.size:
+        raise ValueError("initial_vector and matrix dimensions must match")
+    if np.any(~np.isfinite(generator)):
+        raise ValueError("matrix must contain only finite values")
+    if np.max(np.real(linalg.eigvals(generator))) >= -1e-12:
+        raise ValueError("matrix must have negative spectral abscissa")
+
+    if exit_vector is None:
+        exits = -generator @ np.ones(initial.size, dtype=float)
+    else:
+        exits = _finite_1d(exit_vector, "exit_vector")
+        if exits.shape != initial.shape:
+            raise ValueError("exit_vector and initial_vector dimensions must match")
+
+    total = float(initial @ linalg.solve(-generator, exits, assume_a="gen"))
+    if not np.isfinite(total) or total <= 0.0:
+        raise ValueError("matrix-exponential representation must have positive total mass")
+    if normalize:
+        initial = initial / total
+        total = 1.0
+    elif not np.isclose(total, 1.0, rtol=1e-8, atol=1e-10):
+        raise ValueError("matrix-exponential representation must integrate to one")
+    return initial.copy(), generator.copy(), exits.copy(), total
+
+
 def _sample_phase_type(
     initial: np.ndarray,
     subgenerator: np.ndarray,
@@ -459,6 +495,111 @@ def phase_type(initial_probabilities: ArrayLike, subgenerator: ArrayLike) -> Cla
             "initial_probabilities": initial.copy(),
             "subgenerator": matrix.copy(),
             "exit_rates": exit_rates.copy(),
+            "spectral_bound": spectral_bound,
+        },
+    )
+
+
+def matrix_exponential(
+    initial_vector: ArrayLike,
+    matrix: ArrayLike,
+    exit_vector: ArrayLike | None = None,
+    *,
+    normalize: bool = True,
+    validate_density: bool = True,
+    grid_size: int = 129,
+) -> ClaimDistribution:
+    """Continuous matrix-exponential severity distribution.
+
+    The representation has density ``alpha exp(T x) t``. Unlike phase-type
+    laws, ``alpha``, ``T`` and ``t`` need not be Markovian; only stability and
+    non-negative density/survival on the numerical validation grid are checked.
+    Sampling is intentionally unavailable for general signed representations.
+    """
+
+    initial, generator, exits, mass = _matrix_exponential_inputs(
+        initial_vector,
+        matrix,
+        exit_vector,
+        normalize=normalize,
+    )
+    dimension = initial.size
+    minus_generator = -generator
+    first = linalg.solve(minus_generator, linalg.solve(minus_generator, exits, assume_a="gen"))
+    mean_value = float(initial @ first)
+    second_vector = 2.0 * linalg.solve(minus_generator, first, assume_a="gen")
+    second = float(initial @ second_vector)
+    variance = max(second - mean_value**2, 0.0)
+    spectral_bound = float(-np.max(np.real(linalg.eigvals(generator))))
+    tail_vector = linalg.solve(minus_generator, exits, assume_a="gen")
+
+    def survival(x: ArrayLike) -> np.ndarray:
+        values = _as_array(x)
+        flat = values.ravel()
+        result = np.zeros_like(flat, dtype=float)
+        result[flat < 0.0] = 1.0
+        finite = np.isfinite(flat) & (flat >= 0.0)
+        for index in np.where(finite)[0]:
+            result[index] = float(initial @ linalg.expm(generator * flat[index]) @ tail_vector)
+        return np.clip(result.reshape(values.shape), 0.0, 1.0)
+
+    def cdf(x: ArrayLike) -> np.ndarray:
+        values = _as_array(x)
+        return np.where(values < 0.0, 0.0, 1.0 - survival(values))
+
+    def raw_pdf(x: ArrayLike) -> np.ndarray:
+        values = _as_array(x)
+        flat = values.ravel()
+        result = np.zeros_like(flat, dtype=float)
+        finite = np.isfinite(flat) & (flat >= 0.0)
+        for index in np.where(finite)[0]:
+            result[index] = float(initial @ linalg.expm(generator * flat[index]) @ exits)
+        return result.reshape(values.shape)
+
+    def pdf(x: ArrayLike) -> np.ndarray:
+        return np.maximum(raw_pdf(x), 0.0)
+
+    def mgf(t: float) -> float:
+        if t >= spectral_bound:
+            return np.inf
+        system = -t * np.eye(dimension) - generator
+        return float(initial @ linalg.solve(system, exits, assume_a="gen"))
+
+    def laplace(s: float) -> float:
+        system = s * np.eye(dimension) - generator
+        return float(initial @ linalg.solve(system, exits, assume_a="gen"))
+
+    if validate_density:
+        n_grid = _sample_size(grid_size)
+        if n_grid < 5:
+            raise ValueError("grid_size must be at least five")
+        upper = max(10.0 * mean_value, 10.0 / spectral_bound)
+        grid = np.linspace(0.0, upper, n_grid)
+        density_values = raw_pdf(grid)
+        survival_values = survival(grid)
+        if np.any(density_values < -1e-10):
+            raise ValueError("matrix-exponential density is negative on the validation grid")
+        if np.any(np.diff(survival_values) > 1e-8):
+            raise ValueError("matrix-exponential survival is not decreasing on the grid")
+
+    def sampler(_: np.random.Generator, __: int) -> np.ndarray:
+        raise NotImplementedError("general matrix-exponential laws are not directly sampleable")
+
+    return ClaimDistribution(
+        name="matrix_exponential",
+        mean_value=mean_value,
+        variance_value=variance,
+        sampler=sampler,
+        cdf_function=cdf,
+        survival_function=survival,
+        pdf_function=pdf,
+        mgf_function=mgf,
+        laplace_function=laplace,
+        metadata={
+            "initial_vector": initial.copy(),
+            "matrix": generator.copy(),
+            "exit_vector": exits.copy(),
+            "normalization_constant": mass,
             "spectral_bound": spectral_bound,
         },
     )

@@ -43,6 +43,9 @@ published actuarial software examples used as numerical reference checks.
 - [Infinite-mean regular-variation example](examples/infinite_mean_regular_variation.py):
   tail-ratio diagnostics, KLR one-big-jump approximations and premium-growth
   calibration.
+- [Matrix-analytic prevention example](examples/matrix_analytic_prevention.py):
+  matrix-exponential ruin, PH renewal counts, closed Gerber-Shiu transforms,
+  dynamic seasonal prevention and two-claim prevention plots.
 
 ## Quick start
 
@@ -128,6 +131,14 @@ Cramer-Lundberg primary-claim models with linear severity scaling:
   inassurability and infinite-mean premium-growth asymptotics;
 - infinite-mean regularly varying risk models, one-big-jump tail integrals,
   `beta > 1 / alpha` diagnostics and polynomial premium-growth calibration;
+- matrix-exponential severity laws beyond standard phase-type representations,
+  with validated density/survival grids and ultimate ruin probabilities through
+  the Pollaczek-Khinchine matrix tail;
+- phase-type inter-arrival convolutions, finite-horizon renewal count laws and
+  Sparre-Andersen count-mixture ruin probabilities;
+- exponential closed-form Gerber-Shiu transforms for discounted ruin and
+  deficit moments, plus the phase-type/matrix-exponential ultimate ruin
+  transform as the zero-discount, unit-penalty matrix case;
 - Lundberg adjustment coefficients, bounds and light-tail asymptotics;
 - Pollaczek-Khinchine Monte Carlo via equilibrium claim sampling;
 - discrete Pollaczek-Khinchine/Panjer approximations for ultimate ruin;
@@ -141,6 +152,11 @@ Cramer-Lundberg primary-claim models with linear severity scaling:
   exponential responses, constrained optimization for custom response functions,
   lagged calendars, annual Lundberg/net-profit helpers and heavy-tail
   tail-pressure optimization;
+- finite-horizon dynamic seasonal prevention calendars with arbitrary convex
+  decreasing response functions and budget carry-over;
+- two-claim-type prevention following Gauchon et al. (2021), where prevention
+  acts on the large-claim frequency and optimizes zero-surplus, adjustment-root
+  or heavy-tail large-claim objectives;
 - discrete-time INAR/BINAR by-claim simulation, ruin estimation and
   diagnostics;
 - Gerber-Shiu discounted penalty diagnostics with deficit-at-ruin and
@@ -150,9 +166,8 @@ Cramer-Lundberg primary-claim models with linear severity scaling:
 Sparre-Andersen arrivals, by-claims, INAR/BINAR dependent by-claims, capital
 injections and nonlinear prevention are available in simulation and prevention
 optimization.
-Matrix-valued/closed-form Gerber-Shiu solvers remain planned beyond the current
-simulation diagnostics. The two-claim-type prevention model remains planned
-beyond the current single-risk and periodic prevention optimizers.
+Fully general discounted matrix-valued Gerber-Shiu penalties remain planned
+beyond the current exponential closed form and matrix ultimate-ruin transform.
 Premium-dependent finite-time dynamics and richer
 matrix-valued dependence solvers remain planned beyond the current lattice
 finite-time formulas; the detailed finite-time implementation roadmap is in

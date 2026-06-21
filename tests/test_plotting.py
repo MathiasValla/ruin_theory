@@ -26,15 +26,18 @@ from ruin_theory.plotting import (
     plot_deficit_at_ruin,
     plot_discrete_time_deficit_cdf,
     plot_discrete_time_surplus_cdf,
+    plot_dynamic_prevention_policy,
     plot_finite_time_appell_coefficients,
     plot_finite_time_discrete_boundary,
     plot_finite_time_discrete_computation_set,
     plot_finite_time_discrete_survival,
     plot_finite_time_lundberg_bounds,
+    plot_gerber_shiu_closed_form,
     plot_gerber_shiu_scatter,
     plot_path,
     plot_paths,
     plot_periodic_pressure,
+    plot_phase_type_renewal_count,
     plot_premium_power_calibration,
     plot_prevention_calendar,
     plot_multirisk_dividend_convergence,
@@ -48,6 +51,7 @@ from ruin_theory.plotting import (
     plot_simplex_allocation_surface,
     plot_solvency_region_2d,
     plot_two_line_allocation_curve,
+    plot_two_claim_prevention_summary,
     plot_surplus_before_ruin,
     plot_terminal_reserve_distribution,
     plot_uninsurability_times,
@@ -58,6 +62,7 @@ from ruin_theory.plotting import (
 from ruin_theory import (
     BINARByClaimModel,
     CommonShock,
+    CramerLundbergProcess,
     INARByClaimModel,
     MarkovEnvironment,
     RedTimeCurveResult,
@@ -65,6 +70,7 @@ from ruin_theory import (
     climate_change_ruin_table,
     dependence_impact,
     deterministic,
+    exponential,
     evaluate_reserve_allocation_grid,
     finite_time_markov_modulated_ruin,
     finite_time_ruin_discrete_appell,
@@ -74,12 +80,17 @@ from ruin_theory import (
     finite_time_ruin_discrete,
     finite_time_discrete_time_ruin,
     finite_time_lundberg_bounds,
+    gerber_shiu_exponential_closed_form,
     gerber_shiu_from_paths,
     estimate_multirisk_dividend_penalties_ctmc,
     infinite_mean_ruin_curve,
     multirisk_dividend_convergence,
+    optimize_dynamic_prevention_calendar,
     optimize_reserve_allocation,
+    optimize_two_claim_prevention,
     pareto_infinite_mean_model,
+    phase_type,
+    phase_type_renewal_count_pmf,
     premium_power_calibration_grid,
     regular_variation_tail_diagnostic,
     simulate_binar_byclaim_path,
@@ -780,6 +791,48 @@ def test_plot_periodic_pressure_shows_controlled_pressure():
 
     with pytest.raises(ValueError, match="labels"):
         plot_periodic_pressure(calendar, labels=["A"])
+
+
+def test_plot_block_nine_matrix_and_prevention_diagnostics():
+    gerber = gerber_shiu_exponential_closed_form(
+        CramerLundbergProcess(
+            premium_rate=1.0,
+            claim_arrival_rate=3.0,
+            claim_distribution=exponential(rate=5.0),
+        ),
+        np.array([0.0, 1.0, 2.0]),
+        return_result=True,
+    )
+    count_law = phase_type_renewal_count_pmf(phase_type([1.0], [[-2.0]]), 1.0, max_count=5)
+    dynamic = optimize_dynamic_prevention_calendar(
+        [1.0, 5.0, 1.0],
+        initial_budget=0.2,
+        max_prevention=1.0,
+        effectiveness=2.0,
+        budget_grid_size=51,
+    )
+    two_claim = optimize_two_claim_prevention(
+        exponential(rate=1.0),
+        exponential(rate=0.5),
+        premium_rate=8.0,
+        small_claim_arrival_rate=0.5,
+        large_claim_frequency_function=lambda amount: np.exp(-2.0 * amount),
+        max_prevention=1.0,
+    )
+
+    fig, axes = plt.subplots(2, 2)
+    try:
+        gerber_axis = plot_gerber_shiu_closed_form(gerber, ax=axes[0, 0])
+        count_axis = plot_phase_type_renewal_count(count_law, ax=axes[0, 1])
+        dynamic_axis = plot_dynamic_prevention_policy(dynamic, ax=axes[1, 0])
+        two_claim_axis = plot_two_claim_prevention_summary(two_claim, ax=axes[1, 1])
+
+        assert gerber_axis.get_title() == "Closed-form Gerber-Shiu transform"
+        assert count_axis.get_title() == "PH renewal count law"
+        assert dynamic_axis.get_title() == "Dynamic prevention policy"
+        assert two_claim_axis.get_title() == "Two-claim prevention optimum"
+    finally:
+        plt.close(fig)
 
 
 def test_plot_integer_byclaim_path_and_counts():

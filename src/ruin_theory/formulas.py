@@ -81,6 +81,35 @@ def _phase_type_components(
     return initial, matrix
 
 
+def _matrix_exponential_components(
+    distribution: ClaimDistribution,
+    *,
+    scale: float = 1.0,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    if distribution.name == "phase_type":
+        initial, matrix = _phase_type_components(distribution, scale=scale)
+        exits = -matrix @ np.ones(initial.size, dtype=float)
+        return initial, matrix, exits
+    if distribution.name != "matrix_exponential":
+        raise ValueError("requires matrix_exponential claim sizes")
+    scale = float(scale)
+    if not np.isfinite(scale) or scale <= 0.0:
+        raise ValueError("scale must be finite and positive")
+    initial = np.asarray(distribution.metadata["initial_vector"], dtype=float)
+    matrix = np.asarray(distribution.metadata["matrix"], dtype=float) / scale
+    exits = np.asarray(distribution.metadata["exit_vector"], dtype=float) / scale
+    return initial, matrix, exits
+
+
+def _matrix_exponential_mean(
+    initial: np.ndarray,
+    matrix: np.ndarray,
+    exits: np.ndarray,
+) -> float:
+    first = linalg.solve(-matrix, linalg.solve(-matrix, exits, assume_a="gen"))
+    return float(initial @ first)
+
+
 def _phase_type_mean(initial: np.ndarray, matrix: np.ndarray) -> float:
     return float(initial @ linalg.solve(-matrix, np.ones(initial.size), assume_a="gen"))
 
@@ -567,6 +596,60 @@ def ultimate_ruin_phase_type(
     values = np.empty_like(flat, dtype=float)
     for index, value in enumerate(flat):
         values[index] = rho * float(beta @ linalg.expm(maximum_generator * value) @ ones)
+    return np.clip(values.reshape(surplus.shape), 0.0, 1.0)
+
+
+def ultimate_ruin_matrix_exponential(
+    model: CramerLundbergProcess,
+    u: ArrayLike | None = None,
+) -> np.ndarray:
+    """Matrix-exponential Pollaczek-Khinchine ultimate ruin probability.
+
+    If claims have density ``alpha exp(T x) t``, the equilibrium severity has
+    matrix-exponential representation
+    ``(alpha / E[X], T, (-T)^-1 t)``. The all-time maximum is a geometric sum of
+    these equilibrium severities, which yields the matrix tail
+
+    ``psi(u) = rho * gamma exp((T + rho h gamma) u) r``
+
+    with ``gamma = alpha / E[X]``, ``h = (-T)^-1 t`` and
+    ``r = (-T)^-1 h``. For phase-type claims this reduces to
+    :func:`ultimate_ruin_phase_type`.
+    """
+
+    _primary_claim_formula_check(model)
+    if model.claim_distribution.name == "phase_type":
+        return ultimate_ruin_phase_type(model, u)
+    if model.claim_distribution.name != "matrix_exponential":
+        raise ValueError("requires matrix_exponential claim sizes")
+    surplus = _as_array(model.initial_capital if u is None else u)
+    scale = _severity_scale(model)
+    if scale == 0.0 or model.claim_arrival_rate == 0.0:
+        return np.zeros_like(surplus, dtype=float)
+    if model.premium_rate <= 0.0:
+        return np.ones_like(surplus, dtype=float)
+
+    initial, matrix, exits = _matrix_exponential_components(model.claim_distribution, scale=scale)
+    mean = _matrix_exponential_mean(initial, matrix, exits)
+    if not np.isfinite(mean) or mean <= 0.0:
+        raise ValueError("matrix_exponential distribution must have finite positive mean")
+    rho = model.claim_arrival_rate * mean / model.premium_rate
+    if rho >= 1.0:
+        return np.ones_like(surplus, dtype=float)
+    if rho < 0.0:
+        raise ValueError("rho must be non-negative")
+
+    equilibrium_initial = initial / mean
+    equilibrium_exit = linalg.solve(-matrix, exits, assume_a="gen")
+    equilibrium_tail = linalg.solve(-matrix, equilibrium_exit, assume_a="gen")
+    maximum_generator = matrix + rho * np.outer(equilibrium_exit, equilibrium_initial)
+
+    flat = surplus.ravel()
+    values = np.empty_like(flat, dtype=float)
+    for index, value in enumerate(flat):
+        values[index] = rho * float(
+            equilibrium_initial @ linalg.expm(maximum_generator * value) @ equilibrium_tail
+        )
     return np.clip(values.reshape(surplus.shape), 0.0, 1.0)
 
 

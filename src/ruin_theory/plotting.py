@@ -28,14 +28,16 @@ from .finite_discrete_time import (
 from .dividends import BarrierDividendPath
 from .integer_byclaims import IntegerByClaimPath
 from .markov_modulated import DependenceImpactResult, MarkovModulatedRuinResult, solvency_region
+from .matrix_analytic import PhaseTypeRenewalCountResult
 from .multirisk_dividends import MultiriskDividendCTMCResult, MultiriskDividendConvergenceResult
-from .prevention import PeriodicPreventionResult
+from .prevention import DynamicPreventionResult, PeriodicPreventionResult, TwoClaimPreventionResult
 from .red_time import AllocationGridResult, RedTimeCurveResult, ReserveAllocationResult
 from .regular_variation import (
     InfiniteMeanRuinCurve,
     PremiumPowerGrid,
     RegularVariationDiagnostic,
 )
+from .gerber_shiu import GerberShiuExponentialClosedForm
 from .results import GerberShiuResult, RuinEstimate, SimulationPath
 
 
@@ -577,6 +579,64 @@ def plot_gerber_shiu_scatter(
     return axis
 
 
+def plot_gerber_shiu_closed_form(
+    result: GerberShiuExponentialClosedForm,
+    *,
+    ax: Axes | None = None,
+    label: str | None = None,
+) -> Axes:
+    """Plot an exponential closed-form Gerber-Shiu transform."""
+
+    if not isinstance(result, GerberShiuExponentialClosedForm):
+        raise TypeError("result must be a GerberShiuExponentialClosedForm")
+    surplus = _as_1d_float(result.initial_capitals, "initial_capitals")
+    values = _as_1d_float(result.values, "values")
+    if surplus.shape != values.shape:
+        raise ValueError("initial_capitals and values must match")
+
+    axis = _axis(ax)
+    axis.plot(surplus, values, color="#0b6e4f", linewidth=2.0, label=label)
+    axis.set_xlabel("initial surplus")
+    axis.set_ylabel("discounted penalty")
+    axis.set_title("Closed-form Gerber-Shiu transform")
+    if label:
+        axis.legend()
+    return axis
+
+
+def plot_phase_type_renewal_count(
+    result: PhaseTypeRenewalCountResult,
+    *,
+    ax: Axes | None = None,
+    show_tail: bool = True,
+) -> Axes:
+    """Plot the finite-horizon count law for PH renewal arrivals."""
+
+    if not isinstance(result, PhaseTypeRenewalCountResult):
+        raise TypeError("result must be a PhaseTypeRenewalCountResult")
+    probabilities = _as_1d_float(result.probabilities, "probabilities")
+    if np.any((probabilities < 0.0) | (probabilities > 1.0)):
+        raise ValueError("probabilities must lie in [0, 1]")
+    if result.tail_probability < 0.0 or result.tail_probability > 1.0:
+        raise ValueError("tail_probability must lie in [0, 1]")
+
+    axis = _axis(ax)
+    counts = np.arange(probabilities.size)
+    axis.bar(counts, probabilities, color="#4c78a8", alpha=0.86, label="resolved")
+    if show_tail and result.tail_probability > 0.0:
+        tail_x = probabilities.size
+        axis.bar(tail_x, result.tail_probability, color="#b84a39", alpha=0.76, label="tail")
+        axis.set_xticks(np.r_[counts, tail_x])
+        axis.set_xticklabels([str(count) for count in counts] + [f">{result.max_count}"])
+        axis.legend()
+    else:
+        axis.set_xticks(counts)
+    axis.set_xlabel("claim count")
+    axis.set_ylabel("probability")
+    axis.set_title("PH renewal count law")
+    return axis
+
+
 def plot_prevention_calendar(
     calendar: PeriodicPreventionResult,
     *,
@@ -657,6 +717,89 @@ def plot_periodic_pressure(
     axis.set_xticklabels(tick_labels)
     axis.set_ylabel("period pressure")
     axis.set_title("Periodic risk pressure")
+    return axis
+
+
+def plot_dynamic_prevention_policy(
+    result: DynamicPreventionResult,
+    *,
+    ax: Axes | None = None,
+    labels: Iterable[str] | None = None,
+    show_remaining: bool = True,
+) -> Axes:
+    """Plot a finite-horizon dynamic seasonal prevention policy."""
+
+    if not isinstance(result, DynamicPreventionResult):
+        raise TypeError("result must be a DynamicPreventionResult")
+    amounts = _as_1d_float(result.amounts, "amounts")
+    n_periods = amounts.size
+    x = np.arange(n_periods)
+    if labels is None:
+        tick_labels = [str(i + 1) for i in x]
+    else:
+        tick_labels = list(labels)
+        if len(tick_labels) != n_periods:
+            raise ValueError("labels must match the number of dynamic periods")
+
+    axis = _axis(ax)
+    axis.bar(x, amounts, color="#4c78a8", alpha=0.86, label="prevention")
+    axis.set_xticks(x)
+    axis.set_xticklabels(tick_labels)
+    axis.set_xlabel("period")
+    axis.set_ylabel("prevention rate")
+    axis.set_title("Dynamic prevention policy")
+    if show_remaining:
+        remaining = _as_1d_float(result.remaining_budget, "remaining_budget")
+        if remaining.size != n_periods + 1:
+            raise ValueError("remaining_budget must have one more entry than amounts")
+        twin = axis.twinx()
+        twin.step(
+            np.arange(remaining.size) - 0.5,
+            remaining,
+            where="post",
+            color="#0b6e4f",
+            linewidth=1.8,
+            label="remaining budget",
+        )
+        twin.set_ylabel("remaining budget")
+    return axis
+
+
+def plot_two_claim_prevention_summary(
+    result: TwoClaimPreventionResult,
+    *,
+    ax: Axes | None = None,
+) -> Axes:
+    """Plot cost-rate diagnostics for a two-claim prevention optimum."""
+
+    if not isinstance(result, TwoClaimPreventionResult):
+        raise TypeError("result must be a TwoClaimPreventionResult")
+    cost_rates = np.array(
+        [
+            result.small_claim_arrival_rate * result.small_claim_mean,
+            result.large_claim_arrival_rate * result.large_claim_mean,
+            result.amount,
+        ],
+        dtype=float,
+    )
+    if np.any(~np.isfinite(cost_rates)) or np.any(cost_rates < 0.0):
+        raise ValueError("result contains invalid cost rates")
+
+    axis = _axis(ax)
+    labels = ["small claims", "large claims", "prevention"]
+    colors = ["#4c78a8", "#b84a39", "#0b6e4f"]
+    axis.bar(labels, cost_rates, color=colors, alpha=0.84)
+    axis.axhline(result.gross_premium_rate, color="#222222", linewidth=1.1, label="gross premium")
+    axis.axhline(
+        result.net_premium_rate,
+        color="#9467bd",
+        linewidth=1.1,
+        linestyle="--",
+        label="net premium",
+    )
+    axis.set_ylabel("rate")
+    axis.set_title("Two-claim prevention optimum")
+    axis.legend()
     return axis
 
 

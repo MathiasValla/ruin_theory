@@ -17,12 +17,14 @@ from ruin_theory import (
     integrated_tail_survival,
     lognormal,
     lundberg_bound,
+    matrix_exponential,
     mixture_exponential,
     pareto,
     phase_type,
     pollaczek_khinchine_monte_carlo,
     ultimate_ruin_exponential,
     ultimate_ruin_hyperexponential,
+    ultimate_ruin_matrix_exponential,
     ultimate_ruin_phase_type,
     weibull,
 )
@@ -177,6 +179,41 @@ def test_phase_type_ultimate_ruin_matches_exponential_closed_form():
         ),
         rtol=1e-12,
         atol=1e-15,
+    )
+
+
+def test_matrix_exponential_ultimate_ruin_reduces_to_exponential_closed_form():
+    matrix_model = CramerLundbergProcess(
+        premium_rate=1,
+        claim_arrival_rate=3,
+        claim_distribution=matrix_exponential([1.0], [[-5.0]], [5.0]),
+    )
+    exponential_model = CramerLundbergProcess(
+        premium_rate=1,
+        claim_arrival_rate=3,
+        claim_distribution=exponential(rate=5),
+    )
+    u = np.array([0.0, 1.0, 2.0])
+
+    np.testing.assert_allclose(
+        ultimate_ruin_matrix_exponential(matrix_model, u),
+        ultimate_ruin_exponential(exponential_model, u),
+        rtol=1e-12,
+        atol=1e-15,
+    )
+
+
+def test_matrix_exponential_ultimate_ruin_reuses_phase_type_solver():
+    model = CramerLundbergProcess(
+        premium_rate=1,
+        claim_arrival_rate=3,
+        claim_distribution=phase_type([1.0], [[-5.0]]),
+    )
+    u = np.array([0.0, 0.5, 1.0])
+
+    np.testing.assert_allclose(
+        ultimate_ruin_matrix_exponential(model, u),
+        ultimate_ruin_phase_type(model, u),
     )
 
 

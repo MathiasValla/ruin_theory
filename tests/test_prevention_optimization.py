@@ -5,23 +5,28 @@ import pytest
 
 from ruin_theory import (
     ConstantPreventionResult,
+    DynamicPreventionResult,
     ExpectedSurplusPreventionResult,
     HeavyTailPreventionResult,
     PeriodicPreventionResult,
     PreventionResponseWarning,
+    TwoClaimPreventionResult,
     adjustment_coefficient,
     exponential,
     frequency_function_from_response,
     heavy_tail_expected_ruin_time_asymptotic,
     heavy_tail_one_big_jump_ruin_probability,
     optimize_constant_prevention,
+    optimize_dynamic_prevention_calendar,
     optimize_expected_surplus_prevention,
     optimize_heavy_tail_prevention_calendar,
     optimize_periodic_prevention_calendar,
+    optimize_two_claim_prevention,
     periodic_controlled_pressure,
     periodic_lundberg_coefficient,
     periodic_net_profit,
     periodic_pressure_weights,
+    two_claim_prevention_useful_at_zero,
     validate_prevention_response,
 )
 
@@ -419,6 +424,75 @@ def test_heavy_tail_one_big_jump_probability_responds_to_prevention():
     )
 
     assert 0.0 <= prevented <= baseline <= 1.0
+
+
+def test_dynamic_prevention_calendar_saves_budget_for_repeated_high_seasons():
+    response = lambda amount: math.exp(-3.0 * amount)
+
+    result = optimize_dynamic_prevention_calendar(
+        [1.0, 5.0, 1.0],
+        initial_budget=0.4,
+        max_prevention=1.0,
+        prevention_response=response,
+        n_cycles=2,
+        budget_grid_size=81,
+    )
+
+    assert isinstance(result, DynamicPreventionResult)
+    assert result.amounts.size == 6
+    assert result.durations.sum() == pytest.approx(2.0)
+    assert result.remaining_budget[0] == pytest.approx(0.4)
+    assert result.remaining_budget[-1] >= -1e-12
+    assert result.amounts[1] > result.amounts[0]
+    assert result.amounts[4] > result.amounts[3]
+    assert result.controlled_pressure < result.baseline_pressure
+    assert result.pressure_reduction > 0.0
+
+
+def test_two_claim_prevention_condition_and_zero_surplus_optimizer():
+    large_frequency = lambda amount: 2.0 * math.exp(-3.0 * amount)
+
+    assert two_claim_prevention_useful_at_zero(
+        premium_rate=12.0,
+        small_claim_arrival_rate=0.1,
+        large_claim_frequency_function=large_frequency,
+        small_claim_mean=1.0,
+        large_claim_mean=5.0,
+    )
+
+    result = optimize_two_claim_prevention(
+        exponential(rate=1.0),
+        exponential(rate=0.2),
+        premium_rate=12.0,
+        small_claim_arrival_rate=0.1,
+        large_claim_frequency_function=large_frequency,
+        max_prevention=2.0,
+    )
+
+    assert isinstance(result, TwoClaimPreventionResult)
+    assert result.amount > 0.0
+    assert result.objective == "zero_surplus"
+    assert result.large_claim_arrival_rate < large_frequency(0.0)
+    assert result.net_premium_rate == pytest.approx(12.0 - result.amount)
+    assert result.loss_ratio < 1.0
+    assert result.non_ruin_probability_at_zero == pytest.approx(1.0 - result.loss_ratio)
+    assert result.model.claim_arrival_rate == pytest.approx(result.total_claim_arrival_rate)
+
+
+def test_two_claim_prevention_adjustment_objective_returns_coefficient():
+    result = optimize_two_claim_prevention(
+        exponential(rate=1.0),
+        exponential(rate=0.5),
+        premium_rate=8.0,
+        small_claim_arrival_rate=0.5,
+        large_claim_frequency_function=lambda amount: math.exp(-2.0 * amount),
+        objective="adjustment_coefficient",
+        max_prevention=1.0,
+    )
+
+    assert result.objective == "adjustment_coefficient"
+    assert result.adjustment_coefficient is not None
+    assert result.adjustment_coefficient > 0.0
 
 
 def test_constant_prevention_optimizer_validates_arguments():

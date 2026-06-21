@@ -19,6 +19,11 @@ Available factories:
 - `mixture_exponential(rates, weights=None)`: hyperexponential mixture.
 - `phase_type(initial_probabilities, subgenerator)`: continuous phase-type law
   `PH(alpha, T)`, where `subgenerator` is the transient generator matrix.
+- `matrix_exponential(initial_vector, matrix, exit_vector=None,
+  normalize=True, validate_density=True)`: continuous matrix-exponential law
+  with density `alpha exp(T x) t`. Signed representations are allowed when the
+  total mass is positive and the numerical density/survival validation passes;
+  general ME laws are not directly sampleable.
 - `pareto(shape, scale)`: Pareto type I on `[scale, infinity)`.
 - `lomax(shape, scale)`: shifted Pareto/Pareto II on `[0, infinity)`, useful
   for the local INAR/BINAR scripts that simulate `(Pareto - 1) * scale`.
@@ -61,6 +66,16 @@ claims = phase_type(
 )
 print(claims.mean(), claims.variance())
 print(claims.survival([0.0, 1.0, 2.0]))
+```
+
+Matrix-exponential example:
+
+```python
+from ruin_theory import matrix_exponential
+
+# One-dimensional ME representation of Exp(rate=5).
+claims = matrix_exponential([1.0], [[-5.0]], [5.0])
+print(claims.mean(), claims.laplace(1.0))
 ```
 
 ## Loss Utilities
@@ -481,6 +496,117 @@ rho = periodic_lundberg_coefficient(
 print(rho)
 ```
 
+### `optimize_dynamic_prevention_calendar`
+
+Allocates a finite prevention budget across several seasonal cycles by backward
+induction. Unlike the fixed periodic optimizer, the dynamic optimizer can save
+budget for later periods. It minimizes
+
+```text
+sum_t W_t f(p_t)
+```
+
+over `n_cycles * len(weights)` periods, with spending per period constrained by
+`0 <= p_t <= max_prevention` and by the remaining budget. The response can be
+the exponential `exp(-a p)` through `effectiveness=a` or any custom decreasing,
+convex, numerically C2 function `prevention_response`.
+
+Arguments:
+
+- `weights`: non-negative seasonal pressures for one cycle. They are repeated
+  `n_cycles` times.
+- `initial_budget`: total budget available over the whole dynamic horizon.
+- `max_prevention`: instantaneous annualized spending cap.
+- `effectiveness` or `prevention_response`: prevention response specification,
+  mutually exclusive.
+- `durations`: optional positive durations for one cycle, summing to one.
+- `n_cycles`: positive integer number of cycles in the horizon.
+- `budget_grid_size`: number of grid points for the dynamic-programming budget
+  state.
+- `validate_response`, `response_grid_size`, `response_tolerance`: same shape
+  diagnostics as the other prevention optimizers.
+
+Returns a `DynamicPreventionResult` with period `amounts`, repeated `weights`,
+`durations`, `initial_budget`, `remaining_budget`, the dynamic-programming
+`value_function`, baseline/controlled pressures, and `frequency_windows()`.
+
+Minimal example:
+
+```python
+from ruin_theory import optimize_dynamic_prevention_calendar, plot_dynamic_prevention_policy
+
+dynamic = optimize_dynamic_prevention_calendar(
+    [1.0, 5.0, 1.0],
+    initial_budget=0.4,
+    max_prevention=1.0,
+    prevention_response=lambda p: 1.0 / (1.0 + 2.0 * p),
+    n_cycles=2,
+)
+print(dynamic.amounts)
+print(dynamic.remaining_budget)
+plot_dynamic_prevention_policy(dynamic)
+```
+
+### `optimize_two_claim_prevention`
+
+Implements the Gauchon et al. (2021) two-claim-type model where small claims
+arrive at rate `lambda_1`, large claims arrive at rate `lambda_2(p)`, and
+prevention only acts on the large-claim frequency. The surplus process is
+
+```text
+U(t, p) = u + (c - p)t - sum small claims - sum large claims.
+```
+
+Available functions:
+
+- `two_claim_prevention_useful_at_zero(...)`: checks the analytic zero-surplus
+  condition
+  `-lambda_2'(0) > (lambda_1 mu_1 + lambda_2(0) mu_2) / (mu_2 c)`.
+- `optimize_two_claim_prevention(...)`: optimizes the prevention amount.
+
+Arguments:
+
+- `small_claim_distribution`, `large_claim_distribution`: severity laws with
+  finite positive means.
+- `premium_rate`: gross premium rate `c`.
+- `small_claim_arrival_rate`: `lambda_1`.
+- `large_claim_frequency_function`: callable `lambda_2(p)`.
+- `objective`: `"zero_surplus"` minimizes the zero-surplus loss ratio,
+  `"adjustment_coefficient"` maximizes the light-tail adjustment root, and
+  `"heavy_tail_large"` minimizes the heavy-tail large-claim asymptotic constant.
+- `max_prevention`: optional upper bound, defaulting to just below `c`.
+- `initial_capital`: stored in the returned induced model.
+- `validate_response`, `response_grid_size`, `response_tolerance`: numerical
+  shape checks for `lambda_2(p)`.
+- `tol`: scalar optimizer and root-solver tolerance.
+
+Returns a `TwoClaimPreventionResult` with the selected `amount`, objective,
+gross and net premium rates, optimized arrival rates, loss ratio, non-ruin
+probability at zero, optional adjustment coefficient, usefulness condition,
+boundary label, and induced mixture `CramerLundbergProcess`.
+
+Minimal example:
+
+```python
+import math
+from ruin_theory import (
+    exponential,
+    optimize_two_claim_prevention,
+    plot_two_claim_prevention_summary,
+)
+
+result = optimize_two_claim_prevention(
+    exponential(rate=1.0),
+    exponential(rate=0.2),
+    premium_rate=12.0,
+    small_claim_arrival_rate=0.1,
+    large_claim_frequency_function=lambda p: 2.0 * math.exp(-3.0 * p),
+    max_prevention=2.0,
+)
+print(result.amount, result.loss_ratio)
+plot_two_claim_prevention_summary(result)
+```
+
 ### Heavy-Tail Periodic Prevention
 
 For regularly varying annual/event losses with tail index `alpha in (0, 1)`,
@@ -776,6 +902,10 @@ Available functions:
   for phase-type claims in the Cramer-Lundberg model. It uses
   `psi(u) = rho * beta exp((T + rho t beta) u) 1`, with `beta` the equilibrium
   PH initial vector and `t = -T 1`.
+- `ultimate_ruin_matrix_exponential(model, u=None)`: exact
+  Pollaczek-Khinchine matrix-tail ultimate ruin probability for
+  matrix-exponential claim sizes. It also accepts phase-type claims and then
+  delegates to `ultimate_ruin_phase_type`.
 - `finite_time_ruin_exponential(model, u, horizon)`: finite-time formula for
   exponential primary claims.
 - `finite_time_ruin_discrete(claim_pmf, initial_capital, premium_rate,
@@ -929,6 +1059,25 @@ model = CramerLundbergProcess(
     claim_distribution=claims,
 )
 print(ultimate_ruin_phase_type(model, np.array([0.0, 1.0, 2.0])))
+```
+
+Matrix-exponential ruin example:
+
+```python
+import numpy as np
+from ruin_theory import (
+    CramerLundbergProcess,
+    matrix_exponential,
+    ultimate_ruin_matrix_exponential,
+)
+
+claims = matrix_exponential([1.0], [[-5.0]], [5.0])
+model = CramerLundbergProcess(
+    premium_rate=1.0,
+    claim_arrival_rate=3.0,
+    claim_distribution=claims,
+)
+print(ultimate_ruin_matrix_exponential(model, np.array([0.0, 1.0, 2.0])))
 ```
 
 Panjer/Pollaczek-Khinchine example:
@@ -1807,6 +1956,53 @@ plot_regular_variation_tail_diagnostic(diagnostic)
 plot_premium_power_calibration(grid)
 ```
 
+## Matrix-Analytic Renewal Tools
+
+This layer covers phase-type renewal arrivals and matrix-exponential
+Pollaczek-Khinchine tails. It is intended for Sparre-Andersen models where the
+number of claims by a finite horizon can be computed from PH convolutions, then
+combined with count-conditioned ruin probabilities.
+
+Functions:
+
+- `phase_type_convolution(interarrival_distribution, count)`: returns the
+  phase-type law of the sum of `count` iid PH inter-arrival times. `count` must
+  be a positive integer.
+- `phase_type_renewal_count_pmf(interarrival_distribution, horizon,
+  max_count=...)`: returns `P(N(t)=n)` for `n=0,...,max_count` and the tail
+  `P(N(t)>max_count)`.
+- `sparre_andersen_phase_type_ruin_probability_by_count(
+  count_ruin_probabilities, interarrival_distribution, horizon)`: mixes
+  probabilities conditional on the claim count with the PH renewal count law.
+  The last supplied count probability is used for the unresolved tail.
+- `ultimate_ruin_matrix_exponential(model, u=None)`: matrix-exponential
+  ultimate ruin probability for Cramer-Lundberg primary claims.
+
+Returned `PhaseTypeRenewalCountResult` fields:
+
+- `horizon`, `probabilities`, `tail_probability`, `max_count`,
+  `interarrival_distribution`.
+- Convenience properties: `total_mass` and `expected_count_lower_bound`.
+
+Minimal example:
+
+```python
+import numpy as np
+from ruin_theory import (
+    phase_type,
+    phase_type_renewal_count_pmf,
+    plot_phase_type_renewal_count,
+    sparre_andersen_phase_type_ruin_probability_by_count,
+)
+
+wait = phase_type([1.0], [[-2.0]])  # exponential waiting time as PH
+count_law = phase_type_renewal_count_pmf(wait, horizon=1.5, max_count=8)
+ruin_by_count = np.linspace(0.0, 0.8, 9)
+print(count_law.probabilities, count_law.tail_probability)
+print(sparre_andersen_phase_type_ruin_probability_by_count(ruin_by_count, wait, 1.5))
+plot_phase_type_renewal_count(count_law)
+```
+
 ## Gerber-Shiu Diagnostics
 
 The Gerber-Shiu diagnostic layer estimates the finite-horizon discounted
@@ -1818,11 +2014,16 @@ E[exp(-delta tau) w(R_{tau-}, |R_tau|); tau <= horizon],
 
 where `R_{tau-}` is the surplus immediately before ruin and `|R_tau|` is the
 deficit at ruin. This simulation layer follows the Gerber-Shiu definition from
-Asmussen and Albrecher, Chapter XII; matrix-valued closed-form solvers remain a
-separate planned analytical extension.
+Asmussen and Albrecher, Chapter XII. The package also includes the closed form
+for exponential Cramer-Lundberg claims and the matrix-exponential ultimate ruin
+transform, which is the zero-discount, unit-penalty matrix case.
 
 Functions:
 
+- `gerber_shiu_exponential_closed_form(model, u=None, discount_rate=0,
+  deficit_moment_order=0, return_result=False)`: closed form for
+  `E[exp(-delta tau) D_tau^k; tau < infinity]` with exponential primary
+  claims. `D_tau` is the deficit at ruin and `k=deficit_moment_order`.
 - `estimate_gerber_shiu(model, horizon, n_simulations=10000, penalty=None,
   discount_rate=0, ci_level=0.95, seed=None, max_events=1000000,
   return_paths=False)`: simulate paths and estimate the discounted penalty.
@@ -1843,6 +2044,11 @@ Arguments:
   discounted penalty.
 - `max_events`: positive integer event cap passed to `simulate_path`.
 - `return_paths`: return the simulated paths together with the result.
+
+Returned `GerberShiuExponentialClosedForm` fields:
+
+- `initial_capitals`, `values`, `discount_rate`, `deficit_moment_order`,
+  `decay_rate`, `prefactor`.
 
 Returned `GerberShiuResult` fields:
 
@@ -1878,6 +2084,31 @@ result = estimate_gerber_shiu(
 print(result.estimate, result.mean_deficit_at_ruin)
 ```
 
+Closed-form example:
+
+```python
+import numpy as np
+from ruin_theory import (
+    CramerLundbergProcess,
+    exponential,
+    gerber_shiu_exponential_closed_form,
+    plot_gerber_shiu_closed_form,
+)
+
+model = CramerLundbergProcess(
+    premium_rate=1.0,
+    claim_arrival_rate=3.0,
+    claim_distribution=exponential(rate=5.0),
+)
+closed = gerber_shiu_exponential_closed_form(
+    model,
+    np.linspace(0.0, 4.0, 50),
+    deficit_moment_order=1,
+    return_result=True,
+)
+plot_gerber_shiu_closed_form(closed)
+```
+
 ## Plotting
 
 Plotting functions accept an optional Matplotlib `Axes` and return the axis.
@@ -1896,6 +2127,10 @@ Available diagnostics:
   surplus-before-ruin histogram from a `GerberShiuResult`.
 - `plot_gerber_shiu_scatter(result, ax=None, alpha=0.7)`: surplus/deficit
   scatter plot colored by ruin time.
+- `plot_gerber_shiu_closed_form(result, ax=None, label=None)`: closed-form
+  Gerber-Shiu transform against initial surplus.
+- `plot_phase_type_renewal_count(result, ax=None, show_tail=True)`: PH renewal
+  count law with unresolved tail probability.
 - `plot_finite_time_discrete_survival(result, ax=None, label=None)`: exact
   survival curve at inventory dates from an inventory-style finite-time result.
 - `plot_finite_time_discrete_boundary(result, ax=None, label=None)`: plot the
@@ -1920,6 +2155,10 @@ Available diagnostics:
   lagged effective calendar overlaid when relevant.
 - `plot_periodic_pressure(calendar, ax=None, labels=None,
   show_controlled=True)`: baseline and controlled periodic pressure weights.
+- `plot_dynamic_prevention_policy(result, ax=None, labels=None,
+  show_remaining=True)`: dynamic prevention rates and remaining budget path.
+- `plot_two_claim_prevention_summary(result, ax=None)`: small-claim,
+  large-claim and prevention cost-rate diagnostics for a two-type optimum.
 - `plot_win_first_surface(initial_capital, gain, probabilities, ax=None,
   colorbar=True)`: heatmap of double-barrier win-first probabilities.
 - `plot_maximum_before_default_hazard(x, hazard, ax=None, label=None)`:
@@ -2096,6 +2335,12 @@ Implemented now:
   diagnostics and polynomial premium-growth calibration.
 - Phase-type severity distributions and exact Cramer-Lundberg ultimate ruin
   probabilities for phase-type primary claims.
+- Matrix-exponential severity distributions with density/survival validation
+  and Pollaczek-Khinchine matrix-tail ultimate ruin probabilities.
+- Phase-type renewal convolutions, finite-horizon renewal count laws and
+  Sparre-Andersen count-mixture ruin probabilities.
+- Exponential closed-form Gerber-Shiu transforms for discounted ruin and
+  deficit moments.
 - Loss moments, coverage transformations and lattice discretization.
 - Aggregate-loss distributions by Panjer recursion for common counting laws.
 - Deterministic Pollaczek-Khinchine/Panjer ruin approximations.
@@ -2103,6 +2348,9 @@ Implemented now:
   adjustment coefficient and expected surplus following Gauchon et al. (2020).
 - Periodic prevention calendars with projected-log KKT allocation, lagged
   calendars, and heavy-tail tail-pressure optimization.
+- Dynamic finite-horizon seasonal prevention calendars with budget carry-over.
+- Two-claim-type prevention where the large-claim frequency is controlled,
+  including zero-surplus, adjustment-root and heavy-tail objectives.
 - Renewal and prevention-rich models in simulation.
 - By-claims with Poisson or geometric secondary counts.
 - Discrete-time INAR/BINAR by-claim simulation layers.
@@ -2113,9 +2361,9 @@ Implemented now:
 
 Planned extensions:
 
-- Matrix-exponential extensions beyond standard phase-type severities.
-- Phase-type renewal waits and matrix-valued finite-time ruin solvers.
-- Matrix-valued/closed-form Gerber-Shiu solvers beyond simulation diagnostics.
+- Matrix-valued finite-time ruin solvers for PH renewal models.
+- Fully general discounted matrix-valued Gerber-Shiu solvers beyond the
+  exponential closed form and matrix ultimate-ruin transform.
 - Matrix-root analytic versions of the Markov-modulated multirisk
   dividend/penalty formulas beyond the finite CTMC approximation.
 - Continuous-severity Appell/pseudo-polynomial extensions beyond lattice or
@@ -2123,5 +2371,3 @@ Planned extensions:
 - Larger curated reproduction notebooks for every numerical table in
   Rulliere-Loisel, Lefevre-Loisel and Castaner et al.; core algorithms and
   minimal reproduction tests are implemented.
-- Finite-horizon dynamic seasonal prevention beyond fixed annual calendars.
-- Two-claim-type prevention from Gauchon et al. (2021).

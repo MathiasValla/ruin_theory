@@ -11,6 +11,7 @@ from ruin_theory import (
     empirical,
     exponential,
     lomax,
+    matrix_exponential,
     mixture_exponential,
     phase_type,
     raw_moment,
@@ -85,6 +86,24 @@ def test_phase_type_matches_erlang_two_distributional_quantities():
     assert sample.shape == (5000,)
     assert np.all(sample >= 0.0)
     assert sample.mean() == pytest.approx(1.0, abs=0.05)
+
+
+def test_matrix_exponential_matches_one_phase_exponential_distribution():
+    distribution = matrix_exponential([1.0], [[-5.0]], [5.0])
+    x = np.array([0.0, 0.5, 1.0])
+
+    np.testing.assert_allclose(distribution.pdf(x), 5.0 * np.exp(-5.0 * x))
+    np.testing.assert_allclose(distribution.survival(x), np.exp(-5.0 * x))
+    np.testing.assert_allclose(distribution.cdf(x), 1.0 - np.exp(-5.0 * x))
+    assert distribution.mean() == pytest.approx(0.2)
+    assert distribution.variance() == pytest.approx(0.04)
+    assert distribution.mgf(1.0) == pytest.approx(1.25)
+    assert distribution.laplace(1.0) == pytest.approx(5.0 / 6.0)
+
+
+def test_matrix_exponential_validation_rejects_negative_density_grid_values():
+    with pytest.raises(ValueError, match="density is negative"):
+        matrix_exponential([-0.25, 1.0], [[-1.0, 0.0], [0.0, -2.0]], [1.0, 1.0])
 
 
 def test_phase_type_validates_initial_vector_and_subgenerator():
