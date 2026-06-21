@@ -35,6 +35,9 @@ published actuarial software examples used as numerical reference checks.
   Loisel red-time curves, negative-area criteria and reserve-allocation plots.
 - [Markov-modulated common shocks example](examples/markov_modulated_common_shocks.py):
   finite-time multirisk recursion, solvency regions and dependence-impact plots.
+- [Multirisk dividend-penalty example](examples/multirisk_dividend_penalties.py):
+  CTMC approximation of dividends, insolvency penalties and ruin-state
+  diagnostics.
 
 ## Quick start
 
@@ -112,6 +115,9 @@ Cramer-Lundberg primary-claim models with linear severity scaling:
 - Markov-modulated multirisk finite-time recursions with common shocks,
   arbitrary solvency regions, statewise vector compound-Poisson increments and
   dependence-impact plots;
+- multirisk dividend and insolvency-penalty CTMC approximations with branch
+  barriers, status-dependent premium interactions, ruin-state distributions and
+  convergence diagnostics;
 - Lundberg adjustment coefficients, bounds and light-tail asymptotics;
 - Pollaczek-Khinchine Monte Carlo via equilibrium claim sampling;
 - discrete Pollaczek-Khinchine/Panjer approximations for ultimate ruin;
@@ -157,6 +163,9 @@ Time-in-red and reserve-allocation diagnostics follow dos Reis (1993), Gerber
 Markov-modulated multirisk common-shock recursions and dependence diagnostics
 follow Picard, Lefevre and Coulibaly (2003), Loisel (2004, 2005), and related
 work by Cossette, Landriault and Marceau.
+Multirisk dividend and insolvency-penalty approximations follow Asmussen and
+Kella (2000), Frostig (2004), and Loisel's 2005 ISFA working paper on
+Markov-modulated multirisk models with common shocks.
 Prevention features are guided by Ehrlich and Becker (1972), Gauchon et al.
 (2020, 2021), Schmidli (2008), and the seasonal-prevention manuscript by
 Minier, Valla and Lefevre, with heavy-tail periodic prevention following the

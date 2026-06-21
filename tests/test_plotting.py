@@ -34,6 +34,9 @@ from ruin_theory.plotting import (
     plot_paths,
     plot_periodic_pressure,
     plot_prevention_calendar,
+    plot_multirisk_dividend_convergence,
+    plot_multirisk_dividend_penalty_bars,
+    plot_multirisk_ruin_state_distribution,
     plot_red_time_allocation,
     plot_red_time_curve,
     plot_ruin_curve,
@@ -48,6 +51,7 @@ from ruin_theory.plotting import (
 )
 from ruin_theory import (
     BINARByClaimModel,
+    CommonShock,
     INARByClaimModel,
     MarkovEnvironment,
     RedTimeCurveResult,
@@ -63,6 +67,8 @@ from ruin_theory import (
     finite_time_discrete_time_ruin,
     finite_time_lundberg_bounds,
     gerber_shiu_from_paths,
+    estimate_multirisk_dividend_penalties_ctmc,
+    multirisk_dividend_convergence,
     optimize_reserve_allocation,
     simulate_binar_byclaim_path,
     simulate_barrier_dividend_path,
@@ -364,6 +370,45 @@ def test_plot_markov_modulated_common_shock_diagnostics():
         plot_markov_modulated_ruin_curves([independent_result], labels=["a", "b"])
     with pytest.raises(ValueError, match="length two"):
         plot_solvency_region_2d([1.0], [0.0], period=1)
+
+
+def test_plot_multirisk_dividend_penalty_diagnostics():
+    result = estimate_multirisk_dividend_penalties_ctmc(
+        initial_reserves=[1.0, -1.0],
+        barriers=[1.0, 1.0],
+        lower_bounds=[0.0, -1.0],
+        grid_step=1.0,
+        environment_generator=[[0.0]],
+        environment_initial=[1.0],
+        shocks=[CommonShock(intensities=[1.0], claim_pmfs={(2, 0): 1.0})],
+        base_premium_rates=[2.0, 0.0],
+        ruin_lines=[0],
+    )
+    convergence = multirisk_dividend_convergence([result])
+
+    fig, axes = plt.subplots(1, 3)
+    try:
+        bars = plot_multirisk_dividend_penalty_bars(result, ax=axes[0])
+        states = plot_multirisk_ruin_state_distribution(result, ax=axes[1])
+        curve = plot_multirisk_dividend_convergence(
+            convergence,
+            metric="penalties",
+            line=0,
+            ax=axes[2],
+        )
+
+        assert bars.get_title() == "Multirisk dividends and penalties"
+        assert states.get_xlabel() == "surplus line 1 at ruin"
+        assert curve.get_ylabel() == "expected penalties line 1"
+    finally:
+        plt.close(fig)
+
+    with pytest.raises(TypeError, match="MultiriskDividendCTMCResult"):
+        plot_multirisk_dividend_penalty_bars(object())
+    with pytest.raises(ValueError, match="metric"):
+        plot_multirisk_dividend_convergence(convergence, metric="bad")
+    with pytest.raises(ValueError, match="valid line"):
+        plot_multirisk_ruin_state_distribution(result, lines=(0, 4))
 
 
 def test_plot_terminal_reserve_distribution_marks_zero_and_quantiles():

@@ -142,6 +142,19 @@ features in scientific work.
   theorie du risque a temps discret avec horizon fini. *Journal of Applied
   Probability*, 40(3), 527-542.
 
+## Multirisk Dividends And Insolvency Penalties
+
+- Asmussen, S., and Kella, O. (2000). A multi-dimensional martingale for
+  Markov additive processes and its applications. *Advances in Applied
+  Probability*, 32(2), 376-393.
+- Frostig, E. (2004). The expected time to ruin in a risk process with constant
+  barrier via martingales. Working paper.
+- Kella, O., and Whitt, W. (1992). Useful martingales for stochastic storage
+  processes with Levy input. *Journal of Applied Probability*, 29(2), 396-403.
+- Loisel, S. (2005). Time to ruin, insolvency penalties and dividends in a
+  Markov-modulated multirisk model with common shocks. Working paper, Cahiers
+  de recherche de l'ISFA, WP2027.
+
 ## Actuarial Software References
 
 - Dutang, C., Goulet, V., and Pigeon, M. (2008). actuar: An R package for

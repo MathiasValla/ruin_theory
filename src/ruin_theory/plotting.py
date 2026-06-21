@@ -27,6 +27,7 @@ from .finite_discrete_time import (
 from .dividends import BarrierDividendPath
 from .integer_byclaims import IntegerByClaimPath
 from .markov_modulated import DependenceImpactResult, MarkovModulatedRuinResult, solvency_region
+from .multirisk_dividends import MultiriskDividendCTMCResult, MultiriskDividendConvergenceResult
 from .prevention import PeriodicPreventionResult
 from .red_time import AllocationGridResult, RedTimeCurveResult, ReserveAllocationResult
 from .results import GerberShiuResult, RuinEstimate, SimulationPath
@@ -985,6 +986,127 @@ def plot_solvency_region_2d(
     axis.set_xlabel("aggregate claims line 1")
     axis.set_ylabel("aggregate claims line 2")
     axis.set_title(f"Solvency region: {region}")
+    return axis
+
+
+def plot_multirisk_dividend_penalty_bars(
+    result: MultiriskDividendCTMCResult,
+    *,
+    ax: Axes | None = None,
+) -> Axes:
+    """Plot expected shareholder dividends and insolvency penalties by line."""
+
+    if not isinstance(result, MultiriskDividendCTMCResult):
+        raise TypeError("result must be a MultiriskDividendCTMCResult")
+    dividends = _as_1d_float(result.expected_dividends, "expected_dividends")
+    penalties = _as_1d_float(result.expected_penalties, "expected_penalties")
+    if dividends.shape != penalties.shape:
+        raise ValueError("expected_dividends and expected_penalties must match")
+    if np.any(dividends < 0.0) or np.any(penalties < 0.0):
+        raise ValueError("expected rewards must be non-negative")
+
+    axis = _axis(ax)
+    x = np.arange(dividends.size)
+    width = 0.38
+    axis.bar(x - width / 2.0, dividends, width=width, color="#0b6e4f", label="dividends")
+    axis.bar(x + width / 2.0, penalties, width=width, color="#b00020", label="penalties")
+    axis.set_xticks(x)
+    axis.set_xticklabels([f"line {index + 1}" for index in x])
+    axis.set_ylabel("expected amount until ruin")
+    axis.set_title("Multirisk dividends and penalties")
+    axis.legend()
+    return axis
+
+
+def plot_multirisk_ruin_state_distribution(
+    result: MultiriskDividendCTMCResult,
+    *,
+    lines: tuple[int, int] = (0, 1),
+    ax: Axes | None = None,
+) -> Axes:
+    """Plot the two-line marginal distribution of surplus at ruin."""
+
+    if not isinstance(result, MultiriskDividendCTMCResult):
+        raise TypeError("result must be a MultiriskDividendCTMCResult")
+    if len(lines) != 2:
+        raise ValueError("lines must contain two line indices")
+    n_lines = result.expected_dividends.size
+    first, second = (int(lines[0]), int(lines[1]))
+    if first < 0 or first >= n_lines or second < 0 or second >= n_lines:
+        raise ValueError("lines must be valid line indices")
+
+    axis = _axis(ax)
+    if not result.ruin_state_probabilities:
+        axis.text(0.5, 0.5, "no ruin states", ha="center", va="center", transform=axis.transAxes)
+        axis.set_xticks([])
+        axis.set_yticks([])
+        return axis
+
+    states = np.asarray(list(result.ruin_state_probabilities), dtype=float)
+    probabilities = np.asarray(list(result.ruin_state_probabilities.values()), dtype=float)
+    sizes = 80.0 + 520.0 * probabilities / np.max(probabilities)
+    scatter = axis.scatter(
+        states[:, first],
+        states[:, second],
+        s=sizes,
+        c=probabilities,
+        cmap="viridis",
+        alpha=0.82,
+        edgecolors="#222222",
+        linewidths=0.4,
+    )
+    plt.colorbar(scatter, ax=axis, label="probability")
+    axis.axvline(0.0, color="#222222", linewidth=1.0)
+    axis.axhline(0.0, color="#222222", linewidth=1.0)
+    axis.set_xlabel(f"surplus line {first + 1} at ruin")
+    axis.set_ylabel(f"surplus line {second + 1} at ruin")
+    axis.set_title("Surplus distribution at ruin")
+    return axis
+
+
+def plot_multirisk_dividend_convergence(
+    convergence: MultiriskDividendConvergenceResult,
+    *,
+    metric: str = "time",
+    line: int = 0,
+    ax: Axes | None = None,
+) -> Axes:
+    """Plot CTMC discretization convergence for time, dividends or penalties."""
+
+    if not isinstance(convergence, MultiriskDividendConvergenceResult):
+        raise TypeError("convergence must be a MultiriskDividendConvergenceResult")
+    grid = _as_1d_float(convergence.grid_steps, "grid_steps")
+    axis = _axis(ax)
+    if metric == "time":
+        values = _as_1d_float(convergence.expected_time_to_ruin, "expected_time_to_ruin")
+        ylabel = "expected time to ruin"
+    elif metric == "ruin_probability":
+        values = _as_1d_float(convergence.ruin_probabilities, "ruin_probabilities")
+        ylabel = "ruin probability"
+    elif metric in {"dividends", "penalties"}:
+        source = (
+            convergence.expected_dividends
+            if metric == "dividends"
+            else convergence.expected_penalties
+        )
+        matrix = np.asarray(
+            source,
+            dtype=float,
+        )
+        selected = int(line)
+        if matrix.ndim != 2 or selected < 0 or selected >= matrix.shape[1]:
+            raise ValueError("line must be a valid line index")
+        values = matrix[:, selected]
+        ylabel = f"expected {metric} line {selected + 1}"
+    else:
+        raise ValueError("metric must be 'time', 'ruin_probability', 'dividends' or 'penalties'")
+    if values.shape != grid.shape:
+        raise ValueError("convergence metric must match grid_steps")
+    axis.plot(grid, values, marker="o", linewidth=2.0, color="#4c78a8")
+    axis.invert_xaxis()
+    axis.set_xlabel("grid step")
+    axis.set_ylabel(ylabel)
+    axis.set_title("CTMC discretization convergence")
     return axis
 
 

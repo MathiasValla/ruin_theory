@@ -1477,6 +1477,110 @@ dependent = finite_time_markov_modulated_ruin(
 plot_dependence_impact(dependence_impact(independent, dependent))
 ```
 
+## Multirisk Dividends And Insolvency Penalties
+
+This block implements the finite-state CTMC approximation used by Loisel for a
+Markov-modulated multirisk model with branch barriers, financial interactions
+between lines and dividend/penalty accounting. The method discretizes reserves
+on a lattice, keeps the original Markov environment, applies common-shock claim
+transitions, and solves transient CTMC linear systems for expectations until
+absorption at ruin.
+
+The model is intentionally reward-based: while a line is at its barrier, its
+incoming premium rate is recorded as shareholder dividends when no other line
+is insolvent, and as insolvency penalty when at least one other line is in the
+red. Status-dependent premium functions implement the `g_i^k` interaction
+functions from Loisel's model.
+
+Core functions:
+
+- `estimate_multirisk_dividend_penalties_ctmc(...)`: builds the finite CTMC and
+  returns expected time to ruin, ruin probability, expected dividends by line,
+  expected insolvency penalties by line and the distribution of surplus at
+  ruin.
+- `linear_status_premium_function(base_premium_rates, interaction_matrix=None,
+  min_rate=0)`: convenience builder for status-dependent premium rates. Status
+  values are `-1` for insolvent, `0` for interior and `1` for at barrier.
+- `multirisk_dividend_convergence(results)`: collects several CTMC results,
+  normally computed at decreasing `grid_step`, into a convergence table.
+
+Important arguments:
+
+- `initial_reserves`, `barriers`, `lower_bounds`: reserve grid bounds by line.
+  Values must lie on the grid defined by `grid_step`.
+- `environment_generator`, `environment_initial`: continuous-time Markov
+  environment generator and initial distribution.
+- `shocks`: sequence of `CommonShock` objects. Claim vectors are lattice units,
+  not monetary amounts, so a claim of amount `x` is represented by
+  `round(x / grid_step)`.
+- `base_premium_rates` or `premium_rate_function`: either constant branch
+  premium rates or a callable
+  `premium(line, environment_state, reserves, statuses) -> rate`.
+- `transition_claim_pmfs`: optional claim PMFs attached to environment
+  transitions, which covers the `Q o G(alpha)` common-shock-at-transition
+  mechanism in the approximation.
+- `ruin_lines`: lines whose crossing below zero triggers absorption. The
+  default `(0,)` follows the paper's focus on a main line of business.
+- `max_states`: safety cap for the finite CTMC state space.
+
+Minimal example:
+
+```python
+from ruin_theory import (
+    CommonShock,
+    estimate_multirisk_dividend_penalties_ctmc,
+    linear_status_premium_function,
+    multirisk_dividend_convergence,
+    plot_multirisk_dividend_penalty_bars,
+)
+
+step = 0.5
+premium = linear_status_premium_function(
+    [1.0, 0.4],
+    interaction_matrix=[[0.0, 0.3], [0.0, 0.0]],
+)
+shock = CommonShock(
+    intensities=[0.5],
+    claim_pmfs={
+        (round(2.0 / step), 0): 0.7,
+        (0, round(1.5 / step)): 0.3,
+    },
+)
+result = estimate_multirisk_dividend_penalties_ctmc(
+    initial_reserves=[2.0, 0.0],
+    barriers=[3.0, 1.0],
+    lower_bounds=[0.0, -1.0],
+    grid_step=step,
+    environment_generator=[[0.0]],
+    environment_initial=[1.0],
+    shocks=[shock],
+    premium_rate_function=premium,
+    ruin_lines=[0],
+)
+print(result.expected_time_to_ruin)
+print(result.expected_dividends, result.expected_penalties)
+plot_multirisk_dividend_penalty_bars(result)
+
+coarse = result
+fine = estimate_multirisk_dividend_penalties_ctmc(
+    initial_reserves=[2.0, 0.0],
+    barriers=[3.0, 1.0],
+    lower_bounds=[0.0, -1.0],
+    grid_step=0.25,
+    environment_generator=[[0.0]],
+    environment_initial=[1.0],
+    shocks=[
+        CommonShock(
+            intensities=[0.5],
+            claim_pmfs={(8, 0): 0.7, (0, 6): 0.3},
+        )
+    ],
+    premium_rate_function=premium,
+    ruin_lines=[0],
+)
+print(multirisk_dividend_convergence([coarse, fine]).last_time_change)
+```
+
 ## Gerber-Shiu Diagnostics
 
 The Gerber-Shiu diagnostic layer estimates the finite-horizon discounted
@@ -1621,6 +1725,13 @@ Available diagnostics:
   under different dependence assumptions.
 - `plot_solvency_region_2d(initial_capitals, premiums, period, region, ...)`:
   solvency region in two-line aggregate-claim coordinates.
+- `plot_multirisk_dividend_penalty_bars(result, ax=None)`: expected dividends
+  and insolvency penalties by line.
+- `plot_multirisk_ruin_state_distribution(result, lines=(0, 1), ax=None)`:
+  two-line marginal distribution of surplus at ruin.
+- `plot_multirisk_dividend_convergence(convergence, metric="time", line=0,
+  ax=None)`: CTMC discretization convergence for time, ruin probability,
+  dividends or penalties.
 - `plot_integer_byclaim_path(path, ax=None, show_ruin=True)`: discrete
   INAR/BINAR reserve trajectory.
 - `plot_integer_byclaim_counts(path, ax=None, kind="byclaim")`: primary or
@@ -1736,6 +1847,9 @@ Implemented now:
 - Markov-modulated multirisk finite-time recursions with common shocks,
   arbitrary solvency regions, statewise compound-Poisson vector increments and
   dependence-impact diagnostics.
+- Multirisk dividend and insolvency-penalty CTMC approximations with branch
+  barriers, status-dependent premium interactions, optional transition claims,
+  surplus-at-ruin distributions and discretization-convergence diagnostics.
 - Phase-type severity distributions and exact Cramer-Lundberg ultimate ruin
   probabilities for phase-type primary claims.
 - Loss moments, coverage transformations and lattice discretization.
@@ -1758,8 +1872,8 @@ Planned extensions:
 - Matrix-exponential extensions beyond standard phase-type severities.
 - Phase-type renewal waits and matrix-valued finite-time ruin solvers.
 - Matrix-valued/closed-form Gerber-Shiu solvers beyond simulation diagnostics.
-- Markov-modulated multirisk dividend and insolvency-penalty solvers with
-  finite-state CTMC approximations for interacting secondary branches.
+- Matrix-root analytic versions of the Markov-modulated multirisk
+  dividend/penalty formulas beyond the finite CTMC approximation.
 - Continuous-severity Appell/pseudo-polynomial extensions beyond lattice or
   discretized inputs.
 - Larger curated reproduction notebooks for every numerical table in
