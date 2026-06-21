@@ -18,6 +18,7 @@ from ruin_theory.plotting import (
     plot_climate_change_ruin_table,
     plot_dependence_impact,
     plot_environment_state_survival,
+    plot_infinite_mean_ruin_curve,
     plot_integer_byclaim_counts,
     plot_integer_byclaim_path,
     plot_markov_modulated_ruin_curves,
@@ -34,12 +35,14 @@ from ruin_theory.plotting import (
     plot_path,
     plot_paths,
     plot_periodic_pressure,
+    plot_premium_power_calibration,
     plot_prevention_calendar,
     plot_multirisk_dividend_convergence,
     plot_multirisk_dividend_penalty_bars,
     plot_multirisk_ruin_state_distribution,
     plot_red_time_allocation,
     plot_red_time_curve,
+    plot_regular_variation_tail_diagnostic,
     plot_ruin_curve,
     plot_ruin_time_histogram,
     plot_simplex_allocation_surface,
@@ -73,8 +76,12 @@ from ruin_theory import (
     finite_time_lundberg_bounds,
     gerber_shiu_from_paths,
     estimate_multirisk_dividend_penalties_ctmc,
+    infinite_mean_ruin_curve,
     multirisk_dividend_convergence,
     optimize_reserve_allocation,
+    pareto_infinite_mean_model,
+    premium_power_calibration_grid,
+    regular_variation_tail_diagnostic,
     simulate_binar_byclaim_path,
     simulate_barrier_dividend_path,
     simulate_inar_byclaim_path,
@@ -454,6 +461,51 @@ def test_plot_climate_change_diagnostics():
         plot_worsening_pareto_path(path, rescale=True)
     with pytest.raises(ValueError, match="kind"):
         plot_climate_change_ruin_table(table, kind="bad")
+
+
+def test_plot_regular_variation_infinite_mean_diagnostics():
+    model = pareto_infinite_mean_model(
+        claim_arrival_rate=1.0,
+        tail_index=0.8,
+        pareto_scale=1.0,
+        premium_coefficient=2.0,
+        premium_power=1.6,
+    )
+    curve = infinite_mean_ruin_curve(
+        model,
+        [20.0, 50.0, 100.0],
+        method="asymptotic",
+    )
+    diagnostic = regular_variation_tail_diagnostic(
+        model.tail,
+        thresholds=np.logspace(2, 4, 4),
+        multipliers=[2.0, 4.0],
+    )
+    calibration = premium_power_calibration_grid(
+        model.tail,
+        [100.0],
+        [1.0, 1.4, 1.8],
+        target_probability=0.05,
+    )
+
+    fig, axes = plt.subplots(1, 3)
+    try:
+        curve_axis = plot_infinite_mean_ruin_curve(curve, ax=axes[0])
+        ratio_axis = plot_regular_variation_tail_diagnostic(diagnostic, ax=axes[1])
+        calibration_axis = plot_premium_power_calibration(calibration, ax=axes[2])
+
+        assert curve_axis.get_title() == "Infinite-mean ruin approximation"
+        assert ratio_axis.get_ylabel() == "tail ratio"
+        assert calibration_axis.get_xlabel() == "premium power beta"
+    finally:
+        plt.close(fig)
+
+    with pytest.raises(TypeError, match="InfiniteMeanRuinCurve"):
+        plot_infinite_mean_ruin_curve(object())
+    with pytest.raises(TypeError, match="RegularVariationDiagnostic"):
+        plot_regular_variation_tail_diagnostic(object())
+    with pytest.raises(TypeError, match="PremiumPowerGrid"):
+        plot_premium_power_calibration(object())
 
 
 def test_plot_terminal_reserve_distribution_marks_zero_and_quantiles():

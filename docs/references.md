@@ -157,6 +157,11 @@ features in scientific work.
 
 ## Worsening Risks And Infinite-Mean Claims
 
+- Bingham, N. H., Goldie, C. M., and Teugels, J. L. (1989). *Regular
+  Variation*. Cambridge University Press, Cambridge.
+- Denisov, D., Dieker, A. B., and Shneer, V. (2008). Large deviations for
+  random walks under subexponentiality: the big-jump domain. *The Annals of
+  Probability*, 36(5), 1946-1991.
 - Kortschak, D., Loisel, S., and Ribereau, P. (2014). Ruin problems with
   worsening risks or with infinite mean claims. *Stochastic Models*, 31(1),
   119-152. HAL: hal-00735843.

@@ -1694,6 +1694,119 @@ print(infinite_mean_ruin_integral(infinite_mean, initial_capital=100.0))
 print(infinite_mean_ruin_asymptotic(infinite_mean, initial_capital=100.0))
 ```
 
+## Infinite-Mean Risk And Regularly Varying Tails
+
+This block implements the KLR infinite-mean theorem as a general regularly
+varying tail toolkit. It covers claim tails with `0 < alpha <= 1`, cumulative
+premiums `p(t) = a t**beta`, the condition `beta > 1 / alpha`, one-big-jump
+tail integrals and numerical premium calibration. The Pareto-II model used in
+the climate-change section is available as a convenience case, but the API also
+accepts custom survival functions.
+
+Model classes:
+
+- `RegularlyVaryingTail(tail_index, survival_function=None, scale=1,
+  tail_constant=1, name="regularly varying")`: claim-tail object. Without a
+  custom survival function it uses a Pareto-II tail
+  `min(1, tail_constant * (1 + x / scale)**(-tail_index))`.
+- `PolynomialPremiumGrowth(coefficient, power)`: cumulative premium
+  `p(t) = coefficient * t**power`, with `cumulative(time)` and
+  `inverse(amount)` methods.
+- `InfiniteMeanRuinModel(claim_arrival_rate, tail, premium, name=...)`: risk
+  process `R_t = u + p(t) - sum_{i <= N_t} X_i`. The constructor warns when
+  `premium.power <= 1 / tail.tail_index`, because the infinite-horizon
+  theorem no longer applies.
+
+Core functions:
+
+- `premium_power_condition(tail_index, premium_power)`: returns a
+  `PremiumPowerCondition` with the threshold, margin and `holds` property.
+- `infinite_mean_constant(tail_index, premium_power)`: computes
+  `int_0^inf (1 + t**beta)**(-alpha) dt` by the beta-function identity.
+- `infinite_mean_one_big_jump_integral(model, initial_capital, epsabs=1e-10)`:
+  computes `lambda * int_0^inf Fbar(u + p(t)) dt`.
+- `infinite_mean_one_big_jump_asymptotic(model, initial_capital)`: computes
+  `lambda * p^{-1}(u) * Fbar(u) * int_0^inf (1 + t**beta)^(-alpha) dt`.
+- `infinite_mean_ruin_curve(model, initial_capitals, method="asymptotic")`:
+  evaluates either approximation over a reserve grid.
+- `calibrate_polynomial_premium_coefficient(tail, initial_capitals,
+  target_probability, claim_arrival_rate=1, premium_power=...)`: finds the
+  smallest coefficient `a` such that the asymptotic ruin probability is below
+  the target on all supplied reserves.
+- `premium_power_calibration_grid(tail, initial_capitals, premium_powers,
+  target_probability, claim_arrival_rate=1)`: repeats the calibration over
+  candidate powers and records invalid powers as `nan`.
+- `regular_variation_tail_diagnostic(tail, thresholds, multipliers)`: compares
+  finite-threshold ratios `Fbar(kx) / Fbar(x)` to `k**(-alpha)`.
+- `pareto_infinite_mean_model(...)`: convenience constructor for the Pareto-II
+  KLR infinite-mean example.
+
+Returned result objects:
+
+- `InfiniteMeanRuinCurve`: initial-capital grid, probabilities, method, tail
+  index and premium power.
+- `PremiumCalibrationResult`: target, required coefficients by reserve,
+  selected coefficient, binding reserve and achieved asymptotic.
+- `PremiumPowerGrid`: powers, required coefficients, validity flags and
+  threshold `1 / alpha`.
+- `RegularVariationDiagnostic`: thresholds, multipliers, ratios, target ratios
+  and relative errors.
+
+Plotting helpers:
+
+- `plot_infinite_mean_ruin_curve(curve, label=None, loglog=True)`: ruin
+  approximation curve over initial capital.
+- `plot_regular_variation_tail_diagnostic(diagnostic)`: tail-ratio convergence
+  against the `k**(-alpha)` limits.
+- `plot_premium_power_calibration(grid, logy=True)`: required polynomial
+  premium coefficient against candidate powers, with invalid powers marked.
+
+Minimal example:
+
+```python
+import numpy as np
+from ruin_theory import (
+    InfiniteMeanRuinModel,
+    PolynomialPremiumGrowth,
+    RegularlyVaryingTail,
+    calibrate_polynomial_premium_coefficient,
+    infinite_mean_ruin_curve,
+    plot_infinite_mean_ruin_curve,
+    plot_premium_power_calibration,
+    plot_regular_variation_tail_diagnostic,
+    premium_power_calibration_grid,
+    regular_variation_tail_diagnostic,
+)
+
+tail = RegularlyVaryingTail(tail_index=0.8, scale=1.0)
+calibration = calibrate_polynomial_premium_coefficient(
+    tail,
+    initial_capitals=[50.0, 100.0, 200.0],
+    target_probability=0.02,
+    premium_power=1.6,
+)
+model = InfiniteMeanRuinModel(
+    claim_arrival_rate=1.0,
+    tail=tail,
+    premium=PolynomialPremiumGrowth(calibration.required_coefficient, 1.6),
+)
+curve = infinite_mean_ruin_curve(model, np.geomspace(30.0, 1000.0, 20))
+diagnostic = regular_variation_tail_diagnostic(
+    tail,
+    thresholds=np.logspace(2.0, 6.0, 20),
+    multipliers=[2.0, 5.0, 10.0],
+)
+grid = premium_power_calibration_grid(
+    tail,
+    [50.0, 100.0, 200.0],
+    premium_powers=np.linspace(1.05, 2.5, 20),
+    target_probability=0.02,
+)
+plot_infinite_mean_ruin_curve(curve)
+plot_regular_variation_tail_diagnostic(diagnostic)
+plot_premium_power_calibration(grid)
+```
+
 ## Gerber-Shiu Diagnostics
 
 The Gerber-Shiu diagnostic layer estimates the finite-horizon discounted
@@ -1851,6 +1964,12 @@ Available diagnostics:
   Monte Carlo or asymptotic KLR ruin probabilities by worsening speed.
 - `plot_uninsurability_times(table, ax=None)`: premium-ceiling hitting times
   used as climate-change finite horizons.
+- `plot_infinite_mean_ruin_curve(curve, ax=None, label=None, loglog=True)`:
+  infinite-mean one-big-jump or asymptotic ruin curve.
+- `plot_regular_variation_tail_diagnostic(diagnostic, ax=None)`: finite-grid
+  checks of `Fbar(kx) / Fbar(x) -> k**(-alpha)`.
+- `plot_premium_power_calibration(grid, ax=None, logy=True)`: required
+  polynomial premium coefficient over candidate powers.
 - `plot_integer_byclaim_path(path, ax=None, show_ruin=True)`: discrete
   INAR/BINAR reserve trajectory.
 - `plot_integer_byclaim_counts(path, ax=None, kind="byclaim")`: primary or
@@ -1972,6 +2091,9 @@ Implemented now:
 - Worsening-risk and climate-change Pareto models with shape or scale drift,
   KLR finite-capital asymptotics, finite-time Monte Carlo, time to
   inassurability and infinite-mean premium-growth asymptotics.
+- Infinite-mean regularly varying risk models with generic survival functions,
+  one-big-jump tail integrals, `beta > 1 / alpha` checks, tail-ratio
+  diagnostics and polynomial premium-growth calibration.
 - Phase-type severity distributions and exact Cramer-Lundberg ultimate ruin
   probabilities for phase-type primary claims.
 - Loss moments, coverage transformations and lattice discretization.

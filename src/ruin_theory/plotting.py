@@ -31,6 +31,11 @@ from .markov_modulated import DependenceImpactResult, MarkovModulatedRuinResult,
 from .multirisk_dividends import MultiriskDividendCTMCResult, MultiriskDividendConvergenceResult
 from .prevention import PeriodicPreventionResult
 from .red_time import AllocationGridResult, RedTimeCurveResult, ReserveAllocationResult
+from .regular_variation import (
+    InfiniteMeanRuinCurve,
+    PremiumPowerGrid,
+    RegularVariationDiagnostic,
+)
 from .results import GerberShiuResult, RuinEstimate, SimulationPath
 
 
@@ -1204,6 +1209,128 @@ def plot_uninsurability_times(
     axis.set_xlabel("worsening speed")
     axis.set_ylabel("time to premium ceiling")
     axis.set_title("Time to uninsurability")
+    return axis
+
+
+def plot_infinite_mean_ruin_curve(
+    curve: InfiniteMeanRuinCurve,
+    *,
+    ax: Axes | None = None,
+    label: str | None = None,
+    loglog: bool = True,
+) -> Axes:
+    """Plot infinite-mean ruin asymptotics over initial reserves."""
+
+    if not isinstance(curve, InfiniteMeanRuinCurve):
+        raise TypeError("curve must be an InfiniteMeanRuinCurve")
+    capital = _as_1d_float(curve.initial_capitals, "initial_capitals")
+    probabilities = _as_1d_float(curve.probabilities, "probabilities")
+    if capital.shape != probabilities.shape:
+        raise ValueError("probabilities must match initial_capitals")
+    axis = _axis(ax)
+    plot_label = curve.method if label is None else label
+    if loglog:
+        axis.loglog(capital, probabilities, marker="o", linewidth=2.0, label=plot_label)
+    else:
+        axis.plot(capital, probabilities, marker="o", linewidth=2.0, label=plot_label)
+    axis.set_xlabel("initial capital")
+    axis.set_ylabel("ruin probability approximation")
+    axis.set_title("Infinite-mean ruin approximation")
+    axis.legend()
+    return axis
+
+
+def plot_regular_variation_tail_diagnostic(
+    diagnostic: RegularVariationDiagnostic,
+    *,
+    ax: Axes | None = None,
+) -> Axes:
+    """Plot finite-threshold checks of `Fbar(kx) / Fbar(x) -> k**(-alpha)`."""
+
+    if not isinstance(diagnostic, RegularVariationDiagnostic):
+        raise TypeError("diagnostic must be a RegularVariationDiagnostic")
+    thresholds = _as_1d_float(diagnostic.thresholds, "thresholds")
+    multipliers = _as_1d_float(diagnostic.multipliers, "multipliers")
+    ratios = np.asarray(diagnostic.ratios, dtype=float)
+    targets = _as_1d_float(diagnostic.targets, "targets")
+    if ratios.shape != (multipliers.size, thresholds.size):
+        raise ValueError("ratios must have shape (len(multipliers), len(thresholds))")
+    if targets.shape != multipliers.shape:
+        raise ValueError("targets must match multipliers")
+
+    axis = _axis(ax)
+    colors = plt.rcParams["axes.prop_cycle"].by_key().get("color", ["#1f77b4"])
+    for index, multiplier in enumerate(multipliers):
+        color = colors[index % len(colors)]
+        axis.semilogx(
+            thresholds,
+            ratios[index],
+            marker="o",
+            linewidth=1.8,
+            color=color,
+            label=f"k={multiplier:g}",
+        )
+        axis.axhline(targets[index], color=color, linestyle="--", linewidth=1.0)
+    axis.set_xlabel("threshold x")
+    axis.set_ylabel("tail ratio")
+    axis.set_title("Regular-variation tail diagnostic")
+    axis.legend()
+    return axis
+
+
+def plot_premium_power_calibration(
+    grid: PremiumPowerGrid,
+    *,
+    ax: Axes | None = None,
+    logy: bool = True,
+) -> Axes:
+    """Plot required polynomial premium coefficients over candidate powers."""
+
+    if not isinstance(grid, PremiumPowerGrid):
+        raise TypeError("grid must be a PremiumPowerGrid")
+    powers = _as_1d_float(grid.premium_powers, "premium_powers")
+    coefficients = np.asarray(grid.required_coefficients, dtype=float)
+    if coefficients.ndim != 1 or coefficients.size == 0:
+        raise ValueError("required_coefficients must be one-dimensional")
+    if np.any(np.isinf(coefficients)):
+        raise ValueError("required_coefficients must not contain infinite values")
+    valid = np.asarray(grid.condition_holds, dtype=bool)
+    if coefficients.shape != powers.shape or valid.shape != powers.shape:
+        raise ValueError("grid arrays must have matching shapes")
+
+    axis = _axis(ax)
+    y = np.ma.masked_invalid(coefficients)
+    if logy:
+        axis.semilogy(
+            powers,
+            y,
+            marker="o",
+            linewidth=2.0,
+            color="#4c78a8",
+            label="required coefficient",
+        )
+    else:
+        axis.plot(
+            powers,
+            y,
+            marker="o",
+            linewidth=2.0,
+            color="#4c78a8",
+            label="required coefficient",
+        )
+    if np.any(~valid):
+        axis.scatter(
+            powers[~valid],
+            np.ones(np.count_nonzero(~valid)),
+            marker="x",
+            color="#b00020",
+            label="invalid beta",
+        )
+    axis.axvline(grid.threshold, color="#222222", linestyle="--", linewidth=1.0)
+    axis.set_xlabel("premium power beta")
+    axis.set_ylabel("required premium coefficient")
+    axis.set_title("Premium growth calibration")
+    axis.legend()
     return axis
 
 
