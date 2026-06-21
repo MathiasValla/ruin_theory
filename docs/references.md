@@ -155,6 +155,14 @@ features in scientific work.
   Markov-modulated multirisk model with common shocks. Working paper, Cahiers
   de recherche de l'ISFA, WP2027.
 
+## Worsening Risks And Infinite-Mean Claims
+
+- Kortschak, D., Loisel, S., and Ribereau, P. (2014). Ruin problems with
+  worsening risks or with infinite mean claims. *Stochastic Models*, 31(1),
+  119-152. HAL: hal-00735843.
+- Embrechts, P., Klueppelberg, C., and Mikosch, T. (1997). *Modelling
+  Extremal Events for Insurance and Finance*. Springer, Berlin.
+
 ## Actuarial Software References
 
 - Dutang, C., Goulet, V., and Pigeon, M. (2008). actuar: An R package for

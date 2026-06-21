@@ -1581,6 +1581,119 @@ fine = estimate_multirisk_dividend_penalties_ctmc(
 print(multirisk_dividend_convergence([coarse, fine]).last_time_change)
 ```
 
+## Worsening Risks And Climate-Change Ruin Models
+
+This block implements the Pareto worsening-risk scenarios and infinite-mean
+premium-growth asymptotics used by Kortschak, Loisel and Ribereau. The finite
+model keeps Poisson claim arrivals, adjusts the premium continuously with a
+safety loading, and lets the Pareto-II/Lomax severity law worsen either through
+its tail shape or through its scale.
+
+Model classes:
+
+- `WorseningParetoModel(initial_capital, claim_arrival_rate, pareto_scale,
+  initial_shape, worsening_speed, safety_loading, mode="shape")`: KLR
+  finite-mean model. `mode="shape"` uses
+  `alpha_t = (alpha0 - 1) / (1 + c_alpha t) + 1`; `mode="scale"` uses
+  `d_t = d * (1 + c_alpha t)`.
+- `InfiniteMeanPremiumModel(claim_arrival_rate, tail_index, pareto_scale,
+  premium_coefficient, premium_power)`: regularly varying infinite-mean model
+  with cumulative premium `p(t) = premium_coefficient * t**premium_power`.
+
+Useful model methods:
+
+- `shape_at(time)`, `scale_at(time)`, `mean_claim_at(time)`: time-varying
+  severity parameters and mean.
+- `premium_rate_at(time)` and `cumulative_premium(time)`: premium income with
+  safety loading and immediate repricing.
+- `survival_at(amount, time)`: time-local Pareto-II tail.
+- `uninsurability_time(premium_rate_max)`: first time when the required
+  premium exceeds a chosen acceptable ceiling.
+
+Ruin and asymptotic functions:
+
+- `klr_shape_asymptotic(model=None, **kwargs)`: KLR large-capital asymptotic
+  for shape drift. Pass either a model or the model constructor arguments.
+- `klr_scale_asymptotic(model=None, epsabs=1e-10, **kwargs)`: scale-drift
+  asymptotic, evaluated by one numerical integral.
+- `simulate_worsening_pareto_path(model, horizon, seed=None, max_events=1000000,
+  stop_at_ruin=True)`: simulate one reserve path.
+- `estimate_worsening_pareto_ruin_probability(model, horizon,
+  n_simulations=10000, ci_level=0.95, ci_method="wilson", seed=None,
+  max_events=1000000, return_paths=False)`: finite-horizon Monte Carlo
+  estimate. When `return_paths=False`, the estimator uses a vectorized
+  first-ruin-time path for speed.
+- `climate_change_ruin_table(worsening_speeds, initial_capital=500,
+  claim_arrival_rate=1, pareto_scale=1, initial_shape=1.5, safety_loading=1,
+  premium_rate_max=None, reference_speed=0.1, reference_horizon=20,
+  n_simulations=10000, seed=None)`: KLR-style comparison table for shape and
+  scale worsening. When `premium_rate_max` is omitted, the ceiling is the
+  premium rate at `reference_horizon` for `reference_speed`.
+- `infinite_mean_ruin_integral(model, initial_capital, epsabs=1e-10)`:
+  numerical value of `lambda * int Fbar(u + p(t)) dt`.
+- `infinite_mean_ruin_asymptotic(model, initial_capital)`: closed asymptotic
+  constant for Pareto-II tails and polynomial cumulative premiums. The
+  constructor enforces the KLR condition `premium_power > 1 / tail_index`.
+
+Plotting helpers:
+
+- `plot_worsening_pareto_path(path, model=None, rescale=False)`: raw trajectory
+  or KLR-rescaled trajectory `R_t / (u + p(t))`.
+- `plot_climate_change_ruin_table(table, kind="finite")`: finite simulated or
+  asymptotic ruin curves for the shape and scale scenarios.
+- `plot_uninsurability_times(table)`: horizon induced by the premium ceiling.
+
+Minimal example:
+
+```python
+from ruin_theory import (
+    InfiniteMeanPremiumModel,
+    WorseningParetoModel,
+    climate_change_ruin_table,
+    infinite_mean_ruin_asymptotic,
+    infinite_mean_ruin_integral,
+    klr_scale_asymptotic,
+    klr_shape_asymptotic,
+    plot_climate_change_ruin_table,
+    plot_uninsurability_times,
+    plot_worsening_pareto_path,
+    simulate_worsening_pareto_path,
+)
+
+model = WorseningParetoModel(
+    initial_capital=500.0,
+    claim_arrival_rate=1.0,
+    pareto_scale=1.0,
+    initial_shape=1.5,
+    worsening_speed=0.1,
+    safety_loading=1.0,
+    mode="shape",
+)
+print(klr_shape_asymptotic(model))
+print(klr_scale_asymptotic(model))
+
+path = simulate_worsening_pareto_path(model, horizon=200.0, seed=123)
+plot_worsening_pareto_path(path, model=model, rescale=True)
+
+table = climate_change_ruin_table(
+    [0.01, 0.02, 0.05, 0.1, 0.2],
+    n_simulations=1000,
+    seed=123,
+)
+plot_climate_change_ruin_table(table, kind="asymptotic")
+plot_uninsurability_times(table)
+
+infinite_mean = InfiniteMeanPremiumModel(
+    claim_arrival_rate=1.0,
+    tail_index=0.8,
+    pareto_scale=1.0,
+    premium_coefficient=2.0,
+    premium_power=1.4,
+)
+print(infinite_mean_ruin_integral(infinite_mean, initial_capital=100.0))
+print(infinite_mean_ruin_asymptotic(infinite_mean, initial_capital=100.0))
+```
+
 ## Gerber-Shiu Diagnostics
 
 The Gerber-Shiu diagnostic layer estimates the finite-horizon discounted
@@ -1732,6 +1845,12 @@ Available diagnostics:
 - `plot_multirisk_dividend_convergence(convergence, metric="time", line=0,
   ax=None)`: CTMC discretization convergence for time, ruin probability,
   dividends or penalties.
+- `plot_worsening_pareto_path(path, model=None, ax=None, rescale=False,
+  show_ruin=True)`: raw or KLR-rescaled worsening-risk reserve trajectory.
+- `plot_climate_change_ruin_table(table, ax=None, kind="finite")`: finite
+  Monte Carlo or asymptotic KLR ruin probabilities by worsening speed.
+- `plot_uninsurability_times(table, ax=None)`: premium-ceiling hitting times
+  used as climate-change finite horizons.
 - `plot_integer_byclaim_path(path, ax=None, show_ruin=True)`: discrete
   INAR/BINAR reserve trajectory.
 - `plot_integer_byclaim_counts(path, ax=None, kind="byclaim")`: primary or
@@ -1850,6 +1969,9 @@ Implemented now:
 - Multirisk dividend and insolvency-penalty CTMC approximations with branch
   barriers, status-dependent premium interactions, optional transition claims,
   surplus-at-ruin distributions and discretization-convergence diagnostics.
+- Worsening-risk and climate-change Pareto models with shape or scale drift,
+  KLR finite-capital asymptotics, finite-time Monte Carlo, time to
+  inassurability and infinite-mean premium-growth asymptotics.
 - Phase-type severity distributions and exact Cramer-Lundberg ultimate ruin
   probabilities for phase-type primary claims.
 - Loss moments, coverage transformations and lattice discretization.

@@ -15,6 +15,7 @@ from ruin_theory.plotting import (
     plot_barrier_dividend_distribution,
     plot_barrier_dividend_path,
     plot_barrier_ruin_time_distribution,
+    plot_climate_change_ruin_table,
     plot_dependence_impact,
     plot_environment_state_survival,
     plot_integer_byclaim_counts,
@@ -46,8 +47,10 @@ from ruin_theory.plotting import (
     plot_two_line_allocation_curve,
     plot_surplus_before_ruin,
     plot_terminal_reserve_distribution,
+    plot_uninsurability_times,
     plot_win_first_sensitivity,
     plot_win_first_surface,
+    plot_worsening_pareto_path,
 )
 from ruin_theory import (
     BINARByClaimModel,
@@ -55,6 +58,8 @@ from ruin_theory import (
     INARByClaimModel,
     MarkovEnvironment,
     RedTimeCurveResult,
+    WorseningParetoModel,
+    climate_change_ruin_table,
     dependence_impact,
     deterministic,
     evaluate_reserve_allocation_grid,
@@ -73,6 +78,7 @@ from ruin_theory import (
     simulate_binar_byclaim_path,
     simulate_barrier_dividend_path,
     simulate_inar_byclaim_path,
+    simulate_worsening_pareto_path,
     simplex_reserve_grid,
 )
 from ruin_theory.prevention import optimize_periodic_prevention_calendar
@@ -409,6 +415,45 @@ def test_plot_multirisk_dividend_penalty_diagnostics():
         plot_multirisk_dividend_convergence(convergence, metric="bad")
     with pytest.raises(ValueError, match="valid line"):
         plot_multirisk_ruin_state_distribution(result, lines=(0, 4))
+
+
+def test_plot_climate_change_diagnostics():
+    model = WorseningParetoModel(
+        initial_capital=20.0,
+        claim_arrival_rate=1.0,
+        pareto_scale=1.0,
+        initial_shape=1.5,
+        worsening_speed=0.1,
+        safety_loading=1.0,
+        mode="shape",
+    )
+    path = simulate_worsening_pareto_path(model, horizon=5.0, seed=123, stop_at_ruin=False)
+    table = climate_change_ruin_table(
+        [0.05, 0.1],
+        initial_capital=20.0,
+        initial_shape=1.5,
+        n_simulations=5,
+        seed=123,
+    )
+
+    fig, axes = plt.subplots(2, 2)
+    try:
+        raw_axis = plot_worsening_pareto_path(path, ax=axes[0, 0])
+        scaled_axis = plot_worsening_pareto_path(path, model=model, rescale=True, ax=axes[0, 1])
+        ruin_axis = plot_climate_change_ruin_table(table, ax=axes[1, 0], kind="asymptotic")
+        time_axis = plot_uninsurability_times(table, ax=axes[1, 1])
+
+        assert raw_axis.get_ylabel() == "reserve"
+        assert scaled_axis.get_ylabel() == "reserve / (u + p(t))"
+        assert ruin_axis.get_title() == "Climate-change ruin scenarios"
+        assert time_axis.get_title() == "Time to uninsurability"
+    finally:
+        plt.close(fig)
+
+    with pytest.raises(ValueError, match="model is required"):
+        plot_worsening_pareto_path(path, rescale=True)
+    with pytest.raises(ValueError, match="kind"):
+        plot_climate_change_ruin_table(table, kind="bad")
 
 
 def test_plot_terminal_reserve_distribution_marks_zero_and_quantiles():

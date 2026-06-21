@@ -10,6 +10,7 @@ from matplotlib import pyplot as plt
 from matplotlib.axes import Axes
 from numpy.typing import ArrayLike
 
+from .climate_change import ClimateChangeRuinTable, WorseningParetoModel
 from .finite_discrete import (
     FiniteTimeDiscreteAppellResult,
     FiniteTimeDiscreteBoundaryResult,
@@ -1107,6 +1108,102 @@ def plot_multirisk_dividend_convergence(
     axis.set_xlabel("grid step")
     axis.set_ylabel(ylabel)
     axis.set_title("CTMC discretization convergence")
+    return axis
+
+
+def plot_worsening_pareto_path(
+    path: SimulationPath,
+    *,
+    model: WorseningParetoModel | None = None,
+    ax: Axes | None = None,
+    rescale: bool = False,
+    show_ruin: bool = True,
+) -> Axes:
+    """Plot a KLR worsening-risk surplus path, optionally rescaled by `u + p(t)`."""
+
+    if not isinstance(path, SimulationPath):
+        raise TypeError("path must be a SimulationPath")
+    times = _as_1d_float(path.times, "path.times")
+    reserves = _as_1d_float(path.reserves, "path.reserves")
+    if times.shape != reserves.shape:
+        raise ValueError("path.times and path.reserves must match")
+    values = reserves
+    ylabel = "reserve"
+    if rescale:
+        if model is None:
+            raise ValueError("model is required when rescale=True")
+        denominator = model.initial_capital + model.cumulative_premium(times)
+        values = np.divide(
+            reserves,
+            denominator,
+            out=np.zeros_like(reserves),
+            where=denominator > 0.0,
+        )
+        ylabel = "reserve / (u + p(t))"
+
+    axis = _axis(ax)
+    axis.step(times, values, where="post", color="#1f77b4", linewidth=1.8)
+    axis.axhline(0.0, color="#222222", linewidth=1.0)
+    if show_ruin and path.ruin_time is not None:
+        axis.axvline(float(path.ruin_time), color="#b00020", linestyle="--", linewidth=1.2)
+    axis.set_xlabel("time")
+    axis.set_ylabel(ylabel)
+    axis.set_title("Worsening-risk reserve path")
+    return axis
+
+
+def plot_climate_change_ruin_table(
+    table: ClimateChangeRuinTable,
+    *,
+    ax: Axes | None = None,
+    kind: str = "finite",
+) -> Axes:
+    """Plot KLR shape-drift versus scale-drift ruin probabilities by scenario speed."""
+
+    if not isinstance(table, ClimateChangeRuinTable):
+        raise TypeError("table must be a ClimateChangeRuinTable")
+    speeds = _as_1d_float(table.worsening_speeds, "worsening_speeds")
+    if kind == "finite":
+        shape = _as_1d_float(table.shape_finite_ruin, "shape_finite_ruin")
+        scale = _as_1d_float(table.scale_finite_ruin, "scale_finite_ruin")
+        ylabel = "finite-time ruin probability"
+    elif kind == "asymptotic":
+        shape = _as_1d_float(table.shape_asymptotic, "shape_asymptotic")
+        scale = _as_1d_float(table.scale_asymptotic, "scale_asymptotic")
+        ylabel = "asymptotic ruin probability"
+    else:
+        raise ValueError("kind must be 'finite' or 'asymptotic'")
+    if shape.shape != speeds.shape or scale.shape != speeds.shape:
+        raise ValueError("table curves must match worsening_speeds")
+
+    axis = _axis(ax)
+    axis.plot(speeds, shape, color="#4c78a8", linewidth=2.0, marker="o", label="shape drift")
+    axis.plot(speeds, scale, color="#b00020", linewidth=2.0, marker="s", label="scale drift")
+    axis.set_xlabel("worsening speed")
+    axis.set_ylabel(ylabel)
+    axis.set_title("Climate-change ruin scenarios")
+    axis.legend()
+    return axis
+
+
+def plot_uninsurability_times(
+    table: ClimateChangeRuinTable,
+    *,
+    ax: Axes | None = None,
+) -> Axes:
+    """Plot the time at which the required premium exceeds the acceptable maximum."""
+
+    if not isinstance(table, ClimateChangeRuinTable):
+        raise TypeError("table must be a ClimateChangeRuinTable")
+    speeds = _as_1d_float(table.worsening_speeds, "worsening_speeds")
+    horizons = _as_1d_float(table.horizons, "horizons")
+    if speeds.shape != horizons.shape:
+        raise ValueError("horizons must match worsening_speeds")
+    axis = _axis(ax)
+    axis.plot(speeds, horizons, color="#0b6e4f", linewidth=2.0, marker="o")
+    axis.set_xlabel("worsening speed")
+    axis.set_ylabel("time to premium ceiling")
+    axis.set_title("Time to uninsurability")
     return axis
 
 
