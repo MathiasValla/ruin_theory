@@ -197,7 +197,7 @@ use Bingham, Goldie and Teugels' monograph and standard big-jump asymptotics.
 Prevention features are guided by Ehrlich and Becker (1972), Gauchon et al.
 (2020, 2021), Schmidli (2008), and the seasonal-prevention manuscript by
 Minier, Valla and Lefevre, with heavy-tail periodic prevention following the
-2026 manuscript by Valla, Rivoire, Minier, Guibert and Loisel.
+2026 manuscript by Valla et al.
 
 Claude Lefevre's lecture notes and comments helped orient the mathematical
 reading for this project; formal references cite the original scientific
