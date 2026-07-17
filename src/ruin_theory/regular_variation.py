@@ -1,4 +1,4 @@
-"""Infinite-mean ruin tools for regularly varying tails."""
+"""Ruin asymptotics for regularly varying tails."""
 
 from __future__ import annotations
 
@@ -28,20 +28,21 @@ class PremiumPowerCondition:
 
 @dataclass(frozen=True)
 class RegularlyVaryingTail:
-    """Regularly varying claim tail with index `0 < alpha <= 1`."""
+    """Regularly varying claim tail with index `alpha > 0`."""
 
     tail_index: float
     survival_function: Callable[[ArrayLike], ArrayLike] | None = None
     scale: float = 1.0
     tail_constant: float = 1.0
+    mean_value: float | None = None
     name: str = "regularly varying"
 
     def __post_init__(self) -> None:
-        alpha = _positive_float(self.tail_index, "tail_index")
-        if alpha > 1.0:
-            raise ValueError("tail_index must be less than or equal to one")
+        _positive_float(self.tail_index, "tail_index")
         _positive_float(self.scale, "scale")
         _positive_float(self.tail_constant, "tail_constant")
+        if self.mean_value is not None:
+            _positive_float(self.mean_value, "mean_value")
 
     def survival(self, amount: ArrayLike) -> np.ndarray:
         x = _nonnegative_array(amount, "amount")
@@ -54,6 +55,22 @@ class RegularlyVaryingTail:
         if np.any(~np.isfinite(values)) or np.any(values < 0.0) or np.any(values > 1.0):
             raise ValueError("survival_function must return values in [0, 1]")
         return values
+
+    def mean(self, *, epsabs: float = 1e-10) -> float:
+        """Return the finite mean when available, or `inf` for `alpha <= 1`."""
+
+        if self.mean_value is not None:
+            return float(self.mean_value)
+        if self.tail_index <= 1.0:
+            return math.inf
+        if self.survival_function is None:
+            return float(_default_tail_integral(self, np.array([0.0]))[0])
+
+        def integrand(amount: float) -> float:
+            return float(self.survival(amount))
+
+        value, _ = integrate.quad(integrand, 0.0, math.inf, epsabs=epsabs, limit=200)
+        return float(value)
 
 
 @dataclass(frozen=True)
@@ -87,6 +104,8 @@ class InfiniteMeanRuinModel:
 
     def __post_init__(self) -> None:
         _positive_float(self.claim_arrival_rate, "claim_arrival_rate")
+        if self.tail.tail_index > 1.0:
+            raise ValueError("tail.tail_index must be less than or equal to one")
         condition = premium_power_condition(self.tail.tail_index, self.premium.power)
         if not condition.holds:
             warnings.warn(
@@ -123,6 +142,20 @@ class InfiniteMeanRuinCurve:
     method: str
     tail_index: float
     premium_power: float
+
+
+@dataclass(frozen=True)
+class FiniteMeanRegularVariationCurve:
+    """Finite-mean equilibrium-tail and ruin asymptotics on a reserve grid."""
+
+    initial_capitals: np.ndarray
+    equilibrium_tail: np.ndarray
+    equilibrium_tail_asymptotic: np.ndarray
+    ruin_probabilities: np.ndarray | None
+    ruin_asymptotic: np.ndarray | None
+    tail_index: float
+    mean: float
+    rho: float | None
 
 
 @dataclass(frozen=True)
@@ -190,6 +223,119 @@ def infinite_mean_constant(tail_index: float, premium_power: float) -> float:
     alpha = condition.tail_index
     beta = condition.premium_power
     return float(special.beta(1.0 / beta, alpha - 1.0 / beta) / beta)
+
+
+def finite_mean_equilibrium_tail(
+    tail: RegularlyVaryingTail,
+    initial_capitals: ArrayLike,
+    *,
+    mean: float | None = None,
+    epsabs: float = 1e-10,
+) -> np.ndarray:
+    """Evaluate `int_u^inf Fbar(x) dx / E[X]` for a finite-mean tail."""
+
+    _finite_tail_index(tail)
+    reserve = _nonnegative_array(initial_capitals, "initial_capitals")
+    mean_value = _finite_mean(tail, mean=mean, epsabs=epsabs)
+    if tail.survival_function is None:
+        tail_integral = _default_tail_integral(tail, reserve)
+    else:
+        flat = reserve.ravel()
+        tail_integral = np.empty_like(flat, dtype=float)
+
+        def integrand(amount: float) -> float:
+            return float(tail.survival(amount))
+
+        for index, capital in enumerate(flat):
+            value, _ = integrate.quad(integrand, float(capital), math.inf, epsabs=epsabs, limit=200)
+            tail_integral[index] = value
+        tail_integral = tail_integral.reshape(reserve.shape)
+    return np.clip(tail_integral / mean_value, 0.0, 1.0)
+
+
+def finite_mean_equilibrium_tail_asymptotic(
+    tail: RegularlyVaryingTail,
+    initial_capitals: ArrayLike,
+    *,
+    mean: float | None = None,
+    epsabs: float = 1e-10,
+) -> np.ndarray:
+    """Karamata equivalent for a finite-mean regularly varying equilibrium tail.
+
+    If `Fbar` varies regularly with index `-alpha`, `alpha > 1`, then
+    `bar F_I(u) ~ u Fbar(u) / ((alpha - 1) E[X])`.
+    """
+
+    alpha = _finite_tail_index(tail)
+    reserve = _positive_values(initial_capitals, "initial_capitals")
+    mean_value = _finite_mean(tail, mean=mean, epsabs=epsabs)
+    values = reserve * tail.survival(reserve) / ((alpha - 1.0) * mean_value)
+    return values
+
+
+def finite_mean_regularly_varying_ruin_asymptotic(
+    tail: RegularlyVaryingTail,
+    initial_capitals: ArrayLike,
+    *,
+    rho: float,
+    mean: float | None = None,
+    epsabs: float = 1e-10,
+) -> np.ndarray:
+    """Subexponential ruin equivalent using Karamata's equilibrium-tail formula."""
+
+    rho_value = _rho(rho)
+    equilibrium = finite_mean_equilibrium_tail_asymptotic(
+        tail,
+        initial_capitals,
+        mean=mean,
+        epsabs=epsabs,
+    )
+    return rho_value / (1.0 - rho_value) * equilibrium
+
+
+def finite_mean_regular_variation_curve(
+    tail: RegularlyVaryingTail,
+    initial_capitals: ArrayLike,
+    *,
+    rho: float | None = None,
+    mean: float | None = None,
+    epsabs: float = 1e-10,
+) -> FiniteMeanRegularVariationCurve:
+    """Compare exact/quadrature equilibrium tails with Karamata equivalents."""
+
+    _finite_tail_index(tail)
+    capital = _positive_array(initial_capitals, "initial_capitals")
+    mean_value = _finite_mean(tail, mean=mean, epsabs=epsabs)
+    equilibrium = finite_mean_equilibrium_tail(
+        tail,
+        capital,
+        mean=mean_value,
+        epsabs=epsabs,
+    )
+    asymptotic = finite_mean_equilibrium_tail_asymptotic(
+        tail,
+        capital,
+        mean=mean_value,
+        epsabs=epsabs,
+    )
+    rho_value: float | None = None
+    ruin_probabilities: np.ndarray | None = None
+    ruin_asymptotic: np.ndarray | None = None
+    if rho is not None:
+        rho_value = _rho(rho)
+        multiplier = rho_value / (1.0 - rho_value)
+        ruin_probabilities = multiplier * equilibrium
+        ruin_asymptotic = multiplier * asymptotic
+    return FiniteMeanRegularVariationCurve(
+        initial_capitals=capital,
+        equilibrium_tail=equilibrium,
+        equilibrium_tail_asymptotic=asymptotic,
+        ruin_probabilities=ruin_probabilities,
+        ruin_asymptotic=ruin_asymptotic,
+        tail_index=tail.tail_index,
+        mean=mean_value,
+        rho=rho_value,
+    )
 
 
 def infinite_mean_one_big_jump_integral(
@@ -391,6 +537,59 @@ def _probability(value: float, name: str) -> float:
     if not np.isfinite(result) or not 0.0 < result < 1.0:
         raise ValueError(f"{name} must lie in (0, 1)")
     return result
+
+
+def _rho(value: float) -> float:
+    result = float(value)
+    if not np.isfinite(result) or not 0.0 <= result < 1.0:
+        raise ValueError("rho must lie in [0, 1)")
+    return result
+
+
+def _finite_tail_index(tail: RegularlyVaryingTail) -> float:
+    if not isinstance(tail, RegularlyVaryingTail):
+        raise TypeError("tail must be a RegularlyVaryingTail")
+    alpha = tail.tail_index
+    if alpha <= 1.0:
+        raise ValueError("tail.tail_index must be greater than one")
+    return alpha
+
+
+def _finite_mean(
+    tail: RegularlyVaryingTail,
+    *,
+    mean: float | None,
+    epsabs: float,
+) -> float:
+    mean_value = tail.mean(epsabs=epsabs) if mean is None else _positive_float(mean, "mean")
+    if not np.isfinite(mean_value):
+        raise ValueError("finite mean is required")
+    return mean_value
+
+
+def _positive_values(values: ArrayLike, name: str) -> np.ndarray:
+    array = np.asarray(values, dtype=float)
+    if array.size == 0:
+        raise ValueError(f"{name} must contain at least one value")
+    if np.any(~np.isfinite(array)) or np.any(array <= 0.0):
+        raise ValueError(f"{name} must contain finite positive values")
+    return array
+
+
+def _default_tail_integral(tail: RegularlyVaryingTail, lower: np.ndarray) -> np.ndarray:
+    alpha = tail.tail_index
+    if alpha <= 1.0:
+        return np.full_like(lower, math.inf, dtype=float)
+    scale = tail.scale
+    constant = tail.tail_constant
+    x = np.asarray(lower, dtype=float)
+    power_integral = constant * scale / (alpha - 1.0) * (1.0 + x / scale) ** (1.0 - alpha)
+    if constant <= 1.0:
+        return power_integral
+
+    plateau_end = scale * (constant ** (1.0 / alpha) - 1.0)
+    plateau_tail = scale * constant ** (1.0 / alpha) / (alpha - 1.0)
+    return np.where(x < plateau_end, plateau_end - x + plateau_tail, power_integral)
 
 
 def _nonnegative_array(values: ArrayLike, name: str) -> np.ndarray:

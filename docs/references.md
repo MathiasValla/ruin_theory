@@ -157,7 +157,7 @@ features in scientific work.
   Markov-modulated multirisk model with common shocks. Working paper, Cahiers
   de recherche de l'ISFA, WP2027.
 
-## Worsening Risks And Infinite-Mean Claims
+## Worsening Risks And Regularly Varying Claims
 
 - Bingham, N. H., Goldie, C. M., and Teugels, J. L. (1989). *Regular
   Variation*. Cambridge University Press, Cambridge.
@@ -169,6 +169,10 @@ features in scientific work.
   119-152. HAL: hal-00735843.
 - Embrechts, P., Klueppelberg, C., and Mikosch, T. (1997). *Modelling
   Extremal Events for Insurance and Finance*. Springer, Berlin.
+
+Bingham, Goldie and Teugels' Karamata theory is used for finite-mean
+regular-variation equilibrium-tail equivalents; KLR supplies the worsening-risk
+and infinite-mean premium-growth ruin asymptotics.
 
 ## Actuarial Software References
 

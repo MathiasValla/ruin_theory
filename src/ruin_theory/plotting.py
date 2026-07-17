@@ -33,6 +33,7 @@ from .multirisk_dividends import MultiriskDividendCTMCResult, MultiriskDividendC
 from .prevention import DynamicPreventionResult, PeriodicPreventionResult, TwoClaimPreventionResult
 from .red_time import AllocationGridResult, RedTimeCurveResult, ReserveAllocationResult
 from .regular_variation import (
+    FiniteMeanRegularVariationCurve,
     InfiniteMeanRuinCurve,
     PremiumPowerGrid,
     RegularVariationDiagnostic,
@@ -1422,6 +1423,43 @@ def plot_uninsurability_times(
     axis.set_xlabel("worsening speed")
     axis.set_ylabel("time to premium ceiling")
     axis.set_title("Time to uninsurability")
+    return axis
+
+
+def plot_finite_mean_regular_variation_curve(
+    curve: FiniteMeanRegularVariationCurve,
+    *,
+    ax: Axes | None = None,
+    loglog: bool = True,
+    show_ruin: bool = True,
+) -> Axes:
+    """Plot finite-mean regular-variation equilibrium-tail diagnostics."""
+
+    if not isinstance(curve, FiniteMeanRegularVariationCurve):
+        raise TypeError("curve must be a FiniteMeanRegularVariationCurve")
+    capital = _as_1d_float(curve.initial_capitals, "initial_capitals")
+    equilibrium = _as_1d_float(curve.equilibrium_tail, "equilibrium_tail")
+    asymptotic = _as_1d_float(curve.equilibrium_tail_asymptotic, "equilibrium_tail_asymptotic")
+    if equilibrium.shape != capital.shape or asymptotic.shape != capital.shape:
+        raise ValueError("tail arrays must match initial_capitals")
+
+    axis = _axis(ax)
+    plotter = axis.loglog if loglog else axis.plot
+    plotter(capital, equilibrium, marker="o", linewidth=2.0, label="equilibrium tail")
+    plotter(capital, asymptotic, marker="s", linewidth=1.8, label="Karamata equivalent")
+    if show_ruin and curve.ruin_probabilities is not None and curve.ruin_asymptotic is not None:
+        ruin = _as_1d_float(curve.ruin_probabilities, "ruin_probabilities")
+        ruin_asymptotic = _as_1d_float(curve.ruin_asymptotic, "ruin_asymptotic")
+        if ruin.shape != capital.shape or ruin_asymptotic.shape != capital.shape:
+            raise ValueError("ruin arrays must match initial_capitals")
+        plotter(capital, ruin, marker="^", linewidth=1.7, label="ruin from tail")
+        plotter(capital, ruin_asymptotic, marker="v", linewidth=1.7, label="ruin asymptotic")
+        axis.set_ylabel("tail or ruin approximation")
+    else:
+        axis.set_ylabel("equilibrium tail")
+    axis.set_xlabel("initial capital")
+    axis.set_title("Finite-mean regular variation")
+    axis.legend()
     return axis
 
 

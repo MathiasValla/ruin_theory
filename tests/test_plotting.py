@@ -18,6 +18,7 @@ from ruin_theory.plotting import (
     plot_climate_change_ruin_table,
     plot_dependence_impact,
     plot_environment_state_survival,
+    plot_finite_mean_regular_variation_curve,
     plot_infinite_mean_ruin_curve,
     plot_integer_byclaim_counts,
     plot_integer_byclaim_path,
@@ -67,12 +68,14 @@ from ruin_theory import (
     INARByClaimModel,
     MarkovEnvironment,
     RedTimeCurveResult,
+    RegularlyVaryingTail,
     WorseningParetoModel,
     climate_change_ruin_table,
     dependence_impact,
     deterministic,
     exponential,
     evaluate_reserve_allocation_grid,
+    finite_mean_regular_variation_curve,
     finite_time_markov_modulated_ruin,
     finite_time_ruin_discrete_appell,
     finite_time_ruin_discrete_boundary,
@@ -566,6 +569,25 @@ def test_plot_regular_variation_infinite_mean_diagnostics():
         plot_regular_variation_tail_diagnostic(object())
     with pytest.raises(TypeError, match="PremiumPowerGrid"):
         plot_premium_power_calibration(object())
+
+
+def test_plot_finite_mean_regular_variation_curve():
+    curve = finite_mean_regular_variation_curve(
+        RegularlyVaryingTail(tail_index=2.5, scale=4.0),
+        [20.0, 50.0, 100.0],
+        rho=0.3,
+    )
+
+    fig, ax = plt.subplots()
+    try:
+        result = plot_finite_mean_regular_variation_curve(curve, ax=ax)
+        assert result.get_title() == "Finite-mean regular variation"
+        assert result.get_ylabel() == "tail or ruin approximation"
+    finally:
+        plt.close(fig)
+
+    with pytest.raises(TypeError, match="FiniteMeanRegularVariationCurve"):
+        plot_finite_mean_regular_variation_curve(object())
 
 
 def test_plot_terminal_reserve_distribution_marks_zero_and_quantiles():

@@ -9,6 +9,10 @@ from ruin_theory import (
     PolynomialPremiumGrowth,
     RegularlyVaryingTail,
     calibrate_polynomial_premium_coefficient,
+    finite_mean_equilibrium_tail,
+    finite_mean_equilibrium_tail_asymptotic,
+    finite_mean_regular_variation_curve,
+    finite_mean_regularly_varying_ruin_asymptotic,
     infinite_mean_constant,
     infinite_mean_one_big_jump_asymptotic,
     infinite_mean_one_big_jump_integral,
@@ -109,9 +113,64 @@ def test_regular_variation_tail_diagnostic_converges_to_power_ratio():
     assert np.max(diagnostic.relative_errors[:, -3:]) < 0.02
 
 
+def test_finite_mean_equilibrium_tail_matches_pareto_ii_formula():
+    tail = RegularlyVaryingTail(tail_index=2.5, scale=4.0)
+    capital = np.array([0.0, 4.0, 20.0, 100.0])
+
+    exact = finite_mean_equilibrium_tail(tail, capital)
+    expected = (1.0 + capital / 4.0) ** (1.0 - 2.5)
+
+    assert tail.mean() == pytest.approx(4.0 / 1.5)
+    np.testing.assert_allclose(exact, expected)
+
+
+def test_finite_mean_karamata_equivalent_converges_to_integrated_tail():
+    tail = RegularlyVaryingTail(tail_index=2.5, scale=4.0)
+    capital = np.geomspace(10.0, 1_000_000.0, 12)
+
+    exact = finite_mean_equilibrium_tail(tail, capital)
+    asymptotic = finite_mean_equilibrium_tail_asymptotic(tail, capital)
+    ratio = asymptotic / exact
+
+    assert ratio[-1] == pytest.approx(1.0, rel=1e-5)
+    assert np.all(ratio < 1.0)
+    assert finite_mean_equilibrium_tail_asymptotic(tail, 100.0).shape == ()
+
+
+def test_finite_mean_regular_variation_curve_and_ruin_asymptotic():
+    tail = RegularlyVaryingTail(tail_index=3.0, scale=2.0)
+    capital = np.array([20.0, 100.0, 500.0])
+    curve = finite_mean_regular_variation_curve(tail, capital, rho=0.4)
+    ruin = finite_mean_regularly_varying_ruin_asymptotic(tail, capital, rho=0.4)
+
+    np.testing.assert_allclose(curve.ruin_asymptotic, ruin)
+    np.testing.assert_allclose(curve.ruin_probabilities, 0.4 / 0.6 * curve.equilibrium_tail)
+    assert curve.mean == pytest.approx(1.0)
+    assert curve.rho == pytest.approx(0.4)
+    assert curve.tail_index == pytest.approx(3.0)
+
+
+def test_finite_mean_custom_tail_uses_supplied_mean_and_quadrature():
+    tail = RegularlyVaryingTail(
+        tail_index=2.0,
+        survival_function=lambda x: (1.0 + np.asarray(x, dtype=float)) ** -2.0,
+        mean_value=1.0,
+    )
+
+    exact = finite_mean_equilibrium_tail(tail, [0.0, 1.0, 9.0])
+
+    np.testing.assert_allclose(exact, [1.0, 0.5, 0.1], rtol=1e-10)
+
+
 def test_regular_variation_argument_validation_and_warning():
     with pytest.raises(ValueError, match="tail_index"):
-        RegularlyVaryingTail(tail_index=1.2)
+        RegularlyVaryingTail(tail_index=0.0)
+    with pytest.raises(ValueError, match="tail.tail_index"):
+        InfiniteMeanRuinModel(
+            claim_arrival_rate=1.0,
+            tail=RegularlyVaryingTail(tail_index=1.2),
+            premium=PolynomialPremiumGrowth(coefficient=1.0, power=1.0),
+        )
     with pytest.warns(UserWarning, match="premium.power"):
         InfiniteMeanRuinModel(
             claim_arrival_rate=1.0,
@@ -124,4 +183,12 @@ def test_regular_variation_argument_validation_and_warning():
             [100.0],
             target_probability=1.0,
             premium_power=1.6,
+        )
+    with pytest.raises(ValueError, match="greater than one"):
+        finite_mean_equilibrium_tail_asymptotic(RegularlyVaryingTail(tail_index=1.0), [10.0])
+    with pytest.raises(ValueError, match="rho"):
+        finite_mean_regularly_varying_ruin_asymptotic(
+            RegularlyVaryingTail(tail_index=2.0),
+            [10.0],
+            rho=1.0,
         )

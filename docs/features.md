@@ -1934,16 +1934,17 @@ accepts custom survival functions.
 Model classes:
 
 - `RegularlyVaryingTail(tail_index, survival_function=None, scale=1,
-  tail_constant=1, name="regularly varying")`: claim-tail object. Without a
-  custom survival function it uses a Pareto-II tail
+  tail_constant=1, mean_value=None, name="regularly varying")`: claim-tail
+  object. Without a custom survival function it uses a Pareto-II tail
   `min(1, tail_constant * (1 + x / scale)**(-tail_index))`.
 - `PolynomialPremiumGrowth(coefficient, power)`: cumulative premium
   `p(t) = coefficient * t**power`, with `cumulative(time)` and
   `inverse(amount)` methods.
 - `InfiniteMeanRuinModel(claim_arrival_rate, tail, premium, name=...)`: risk
-  process `R_t = u + p(t) - sum_{i <= N_t} X_i`. The constructor warns when
-  `premium.power <= 1 / tail.tail_index`, because the infinite-horizon
-  theorem no longer applies.
+  process `R_t = u + p(t) - sum_{i <= N_t} X_i`. It requires
+  `tail.tail_index <= 1` and warns when
+  `premium.power <= 1 / tail.tail_index`, because the infinite-horizon theorem
+  no longer applies.
 
 Core functions:
 
@@ -2033,6 +2034,74 @@ grid = premium_power_calibration_grid(
 plot_infinite_mean_ruin_curve(curve)
 plot_regular_variation_tail_diagnostic(diagnostic)
 plot_premium_power_calibration(grid)
+```
+
+## Finite-Mean Regular Variation
+
+This block covers claim tails with regular-variation index `alpha > 1`, where
+the claim mean is finite and Karamata's theorem gives the equilibrium-tail
+equivalent used in subexponential Cramer-Lundberg ruin asymptotics.
+
+For a tail `Fbar` varying regularly with index `-alpha`,
+
+```text
+bar F_I(u) = int_u^inf Fbar(x) dx / E[X]
+bar F_I(u) ~ u Fbar(u) / ((alpha - 1) E[X]).
+```
+
+With safety ratio `rho in [0, 1)`, the corresponding heavy-tail ruin equivalent
+is `rho / (1 - rho) * bar F_I(u)`.
+
+Model and result classes:
+
+- `RegularlyVaryingTail(tail_index, survival_function=None, scale=1,
+  tail_constant=1, mean_value=None, name="regularly varying")`: now supports
+  any `tail_index > 0`. Without a custom survival function it uses the
+  Pareto-II-style tail `min(1, tail_constant * (1 + x / scale)**(-tail_index))`.
+  `mean()` returns the exact default mean for `tail_index > 1`, `inf` for
+  `tail_index <= 1`, a supplied `mean_value`, or a quadrature mean for a custom
+  survival function with `tail_index > 1`.
+- `FiniteMeanRegularVariationCurve`: reserve grid, exact/quadrature
+  equilibrium tail, Karamata equivalent and optional ruin approximations.
+
+Functions:
+
+- `finite_mean_equilibrium_tail(tail, initial_capitals, mean=None)`: evaluates
+  `int_u^inf Fbar(x) dx / E[X]`, in closed form for the default Pareto-II tail
+  and by quadrature for custom survival functions.
+- `finite_mean_equilibrium_tail_asymptotic(tail, initial_capitals, mean=None)`:
+  evaluates the Karamata equivalent.
+- `finite_mean_regularly_varying_ruin_asymptotic(tail, initial_capitals,
+  rho=..., mean=None)`: returns `rho / (1 - rho)` times the Karamata
+  equilibrium-tail equivalent.
+- `finite_mean_regular_variation_curve(tail, initial_capitals, rho=None,
+  mean=None)`: returns a comparison object for exact/quadrature tails,
+  asymptotic tails and optional ruin curves.
+
+Plotting:
+
+- `plot_finite_mean_regular_variation_curve(curve, loglog=True,
+  show_ruin=True)`: compares the exact/quadrature equilibrium tail with the
+  Karamata equivalent, and also plots the ruin approximations when `rho` was
+  supplied.
+
+Minimal example:
+
+```python
+import numpy as np
+from ruin_theory import (
+    RegularlyVaryingTail,
+    finite_mean_regular_variation_curve,
+    plot_finite_mean_regular_variation_curve,
+)
+
+tail = RegularlyVaryingTail(tail_index=2.5, scale=4.0)
+curve = finite_mean_regular_variation_curve(
+    tail,
+    np.geomspace(10.0, 10_000.0, 24),
+    rho=0.4,
+)
+plot_finite_mean_regular_variation_curve(curve)
 ```
 
 ## Matrix-Analytic Renewal Tools
@@ -2286,6 +2355,9 @@ Available diagnostics:
   Monte Carlo or asymptotic KLR ruin probabilities by worsening speed.
 - `plot_uninsurability_times(table, ax=None)`: premium-ceiling hitting times
   used as climate-change finite horizons.
+- `plot_finite_mean_regular_variation_curve(curve, ax=None, loglog=True,
+  show_ruin=True)`: finite-mean Karamata equilibrium-tail and ruin-asymptotic
+  comparison.
 - `plot_infinite_mean_ruin_curve(curve, ax=None, label=None, loglog=True)`:
   infinite-mean one-big-jump or asymptotic ruin curve.
 - `plot_regular_variation_tail_diagnostic(diagnostic, ax=None)`: finite-grid
@@ -2416,6 +2488,8 @@ Implemented now:
 - Infinite-mean regularly varying risk models with generic survival functions,
   one-big-jump tail integrals, `beta > 1 / alpha` checks, tail-ratio
   diagnostics and polynomial premium-growth calibration.
+- Finite-mean regularly varying tail diagnostics with Karamata equilibrium-tail
+  equivalents, subexponential ruin asymptotics and comparison plots.
 - Phase-type severity distributions and exact Cramer-Lundberg ultimate ruin
   probabilities for phase-type primary claims.
 - Matrix-exponential severity distributions with density/survival validation

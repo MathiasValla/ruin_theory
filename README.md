@@ -44,6 +44,9 @@ published actuarial software examples used as numerical reference checks.
 - [Infinite-mean regular-variation example](examples/infinite_mean_regular_variation.py):
   tail-ratio diagnostics, KLR one-big-jump approximations and premium-growth
   calibration.
+- [Finite-mean regular-variation example](examples/finite_mean_regular_variation.py):
+  Karamata equilibrium-tail equivalents, subexponential ruin asymptotics and
+  tail-ratio diagnostics.
 - [Matrix-analytic prevention example](examples/matrix_analytic_prevention.py):
   matrix-exponential ruin, PH renewal counts, closed Gerber-Shiu transforms,
   dynamic seasonal prevention and two-claim prevention plots.
@@ -135,6 +138,9 @@ Cramer-Lundberg primary-claim models with linear severity scaling:
   inassurability and infinite-mean premium-growth asymptotics;
 - infinite-mean regularly varying risk models, one-big-jump tail integrals,
   `beta > 1 / alpha` diagnostics and polynomial premium-growth calibration;
+- finite-mean regularly varying tails with exact or quadrature equilibrium
+  tails, Karamata integrated-tail equivalents, subexponential ruin asymptotics
+  and comparison plots;
 - matrix-exponential severity laws beyond standard phase-type representations,
   with validated density/survival grids and ultimate ruin probabilities through
   the Pollaczek-Khinchine matrix tail;
@@ -205,8 +211,9 @@ Multirisk dividend and insolvency-penalty approximations follow Asmussen and
 Kella (2000), Frostig (2004), and Loisel's 2005 ISFA working paper on
 Markov-modulated multirisk models with common shocks.
 Worsening-risk and infinite-mean claim asymptotics follow Kortschak, Loisel
-and Ribereau's climate-change ruin model; regular-variation diagnostics also
-use Bingham, Goldie and Teugels' monograph and standard big-jump asymptotics.
+and Ribereau's climate-change ruin model. Finite-mean regular-variation
+equilibrium-tail equivalents and tail-ratio diagnostics use Bingham, Goldie
+and Teugels' Karamata theory and standard big-jump asymptotics.
 Prevention features are guided by Ehrlich and Becker (1972), Gauchon et al.
 (2020, 2021), Schmidli (2008), and the seasonal-prevention manuscript by
 Minier, Valla and Lefevre, with heavy-tail periodic prevention following the
