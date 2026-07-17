@@ -100,6 +100,41 @@ class RuinEstimate:
 
 
 @dataclass(frozen=True)
+class RuinSensitivityEstimate:
+    """Loisel-Privault finite-time ruin sensitivity estimate.
+
+    ``density`` estimates the density of the running infimum ``M_[0,T]`` at
+    ``-surplus``. For the ordinary, unconditional finite-time ruin probability
+    this gives ``d psi(u,T) / du = -density``.
+    """
+
+    surplus: np.ndarray
+    infimum_points: np.ndarray
+    density: np.ndarray
+    standard_error: np.ndarray
+    ci_low: np.ndarray
+    ci_high: np.ndarray
+    n_simulations: int
+    horizon: float
+    claim_arrival_rate: float
+    conditional_on_claim: bool = False
+    method: str = "loisel-privault-ibp"
+    pathwise_density: np.ndarray = field(default_factory=lambda: np.empty((0, 0)))
+
+    @property
+    def ruin_probability_derivative(self) -> np.ndarray:
+        return -self.density
+
+    @property
+    def derivative_ci_low(self) -> np.ndarray:
+        return -self.ci_high
+
+    @property
+    def derivative_ci_high(self) -> np.ndarray:
+        return -self.ci_low
+
+
+@dataclass(frozen=True)
 class GerberShiuResult:
     """Monte Carlo estimate of a discounted penalty at ruin."""
 

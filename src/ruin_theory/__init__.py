@@ -266,6 +266,7 @@ from .plotting import (
     plot_finite_time_discrete_boundary,
     plot_finite_time_discrete_computation_set,
     plot_finite_time_discrete_survival,
+    plot_finite_time_ruin_sensitivity,
     plot_gerber_shiu_scatter,
     plot_path,
     plot_paths,
@@ -298,8 +299,13 @@ from .plotting import (
     plot_win_first_surface,
     plot_worsening_pareto_path,
 )
-from .results import GerberShiuResult, RuinEstimate, SimulationPath
-from .simulation import estimate_ruin_probability, simulate_path, simulate_terminal_reserves
+from .results import GerberShiuResult, RuinEstimate, RuinSensitivityEstimate, SimulationPath
+from .simulation import (
+    estimate_finite_time_ruin_sensitivity_ibp,
+    estimate_ruin_probability,
+    simulate_path,
+    simulate_terminal_reserves,
+)
 
 __all__ = [
     "AggregateDistribution",
@@ -358,6 +364,7 @@ __all__ = [
     "ReserveAllocationResult",
     "RiskProcess",
     "RuinEstimate",
+    "RuinSensitivityEstimate",
     "RegularVariationDiagnostic",
     "RegularlyVaryingTail",
     "SimulationPath",
@@ -398,6 +405,7 @@ __all__ = [
     "empirical_moment",
     "erlang",
     "estimate_barrier_dividends",
+    "estimate_finite_time_ruin_sensitivity_ibp",
     "estimate_ruin_probability",
     "estimate_binar_byclaim_ruin_probability",
     "estimate_inar_byclaim_ruin_probability",
@@ -502,6 +510,7 @@ __all__ = [
     "plot_finite_time_discrete_boundary",
     "plot_finite_time_discrete_computation_set",
     "plot_finite_time_discrete_survival",
+    "plot_finite_time_ruin_sensitivity",
     "plot_gerber_shiu_scatter",
     "plot_path",
     "plot_paths",

@@ -875,6 +875,85 @@ estimate = estimate_ruin_probability(model, horizon=10.0, n_simulations=5000, se
 print(estimate.probability, estimate.ci_low, estimate.ci_high)
 ```
 
+### `estimate_finite_time_ruin_sensitivity_ibp`
+
+Loisel-Privault integration-by-parts estimator for the finite-time sensitivity
+of the Cramer-Lundberg ruin probability with respect to initial surplus.
+
+For
+
+```text
+M_[0,T] = inf_{0 <= t <= T} (f(t) - S(t))
+psi(u,T) = P(M_[0,T] < -u),
+```
+
+the estimator targets the density of `M_[0,T]` at `-u`, hence
+`d psi(u,T) / du = -density`. Unlike finite differences or kernel smoothing,
+the estimator is pathwise and works with discrete, continuous, light-tailed or
+heavy-tailed claim sizes.
+
+Arguments:
+
+- `model`: a homogeneous `CramerLundbergProcess`. Constant frequency
+  prevention, severity prevention and event-level by-claims are supported.
+  Capital injections and frequency windows are intentionally rejected.
+- `u`: one or more non-negative initial surplus values.
+- `horizon`: positive finite time horizon.
+- `n_simulations`, `ci_level`, `seed`: Monte Carlo controls.
+- `premium_income`: optional deterministic increasing callable `f(t)` that
+  accepts and returns NumPy arrays. If omitted, `f(t) = model.premium_rate * t`.
+- `conditional_on_claim`: if true, return the density conditional on
+  `N_T >= 1`, matching the normalization in Loisel and Privault's proposition.
+  The default false value gives the ordinary ruin-probability derivative.
+- `return_pathwise_density`: if true, store the pathwise density contributions
+  used to compute standard errors.
+
+Returns a `RuinSensitivityEstimate` with `surplus`, `infimum_points`,
+`density`, `ruin_probability_derivative`, `standard_error`, confidence bounds,
+`horizon`, `claim_arrival_rate`, `conditional_on_claim`, and optional
+`pathwise_density`.
+
+```python
+import numpy as np
+from ruin_theory import (
+    CramerLundbergProcess,
+    estimate_finite_time_ruin_sensitivity_ibp,
+    exponential,
+)
+
+model = CramerLundbergProcess(
+    premium_rate=1.0,
+    claim_arrival_rate=0.5,
+    claim_distribution=exponential(rate=1.0),
+)
+u = np.linspace(0.25, 4.0, 25)
+sensitivity = estimate_finite_time_ruin_sensitivity_ibp(
+    model,
+    u,
+    horizon=2.0,
+    n_simulations=20_000,
+    seed=123,
+)
+print(sensitivity.density)
+print(sensitivity.ruin_probability_derivative)
+```
+
+Plotting:
+
+```python
+from matplotlib import pyplot as plt
+from ruin_theory import plot_finite_time_ruin_sensitivity
+
+_, axes = plt.subplots(1, 2, figsize=(9, 3.5), constrained_layout=True)
+plot_finite_time_ruin_sensitivity(sensitivity, ax=axes[0])
+plot_finite_time_ruin_sensitivity(
+    sensitivity,
+    ax=axes[1],
+    quantity="derivative",
+)
+plt.show()
+```
+
 ### `simulate_terminal_reserves`
 
 Returns terminal reserves from repeated full-horizon paths.
@@ -2119,6 +2198,10 @@ Available diagnostics:
 - `plot_paths(paths, ax=None, alpha=0.25)`: overlay several trajectories.
 - `plot_ruin_curve(u, probabilities, ax=None, label=None, ci_low=None,
   ci_high=None, band_alpha=0.18)`: probability curve with optional band.
+- `plot_finite_time_ruin_sensitivity(estimate, ax=None, quantity="density",
+  x_axis="surplus", show_ci=True, label=None, band_alpha=0.18)`: plot the
+  Loisel-Privault infimum density or the corresponding ruin-probability
+  derivative.
 - `plot_ruin_time_histogram(estimate, ax=None, bins=30)`: conditional ruin-time
   histogram from a Monte Carlo estimate.
 - `plot_deficit_at_ruin(result, ax=None, bins=30)`: conditional deficit-at-ruin
@@ -2356,6 +2439,9 @@ Implemented now:
 - Discrete-time INAR/BINAR by-claim simulation layers.
 - Gerber-Shiu discounted penalty simulation diagnostics with deficit-at-ruin and
   surplus-before-ruin plots.
+- Loisel-Privault integration-by-parts infimum-density estimates for
+  finite-time ruin sensitivity, including conditional normalization and
+  plotting helpers.
 - Equilibrium-tail helper and heavy-tail asymptotic path.
 - Diagnostics for trajectories, ruin curves, ruin times and terminal reserves.
 
@@ -2368,6 +2454,8 @@ Planned extensions:
   dividend/penalty formulas beyond the finite CTMC approximation.
 - Continuous-severity Appell/pseudo-polynomial extensions beyond lattice or
   discretized inputs.
+- Operational jump-diffusion infimum-density estimators extending the
+  Loisel-Privault bridge-density representation.
 - Larger curated reproduction notebooks for every numerical table in
   Rulliere-Loisel, Lefevre-Loisel and Castaner et al.; core algorithms and
   minimal reproduction tests are implemented.

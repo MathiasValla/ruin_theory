@@ -38,7 +38,7 @@ from .regular_variation import (
     RegularVariationDiagnostic,
 )
 from .gerber_shiu import GerberShiuExponentialClosedForm
-from .results import GerberShiuResult, RuinEstimate, SimulationPath
+from .results import GerberShiuResult, RuinEstimate, RuinSensitivityEstimate, SimulationPath
 
 
 def _axis(ax: Axes | None) -> Axes:
@@ -174,6 +174,76 @@ def plot_ruin_curve(
     axis.set_ylabel("ruin probability")
     axis.set_ylim(0.0, 1.0)
     if label:
+        axis.legend()
+    return axis
+
+
+def plot_finite_time_ruin_sensitivity(
+    estimate: RuinSensitivityEstimate,
+    *,
+    ax: Axes | None = None,
+    quantity: str = "density",
+    x_axis: str = "surplus",
+    show_ci: bool = True,
+    label: str | None = None,
+    band_alpha: float = 0.18,
+) -> Axes:
+    """Plot the Loisel-Privault infimum-density or ruin-sensitivity estimate."""
+
+    if not 0.0 <= band_alpha <= 1.0:
+        raise ValueError("band_alpha must lie in [0, 1]")
+    quantity_key = quantity.lower()
+    if quantity_key not in {"density", "derivative"}:
+        raise ValueError("quantity must be 'density' or 'derivative'")
+    x_axis_key = x_axis.lower()
+    if x_axis_key not in {"surplus", "infimum"}:
+        raise ValueError("x_axis must be 'surplus' or 'infimum'")
+
+    x_values = (
+        np.asarray(estimate.surplus, dtype=float).ravel()
+        if x_axis_key == "surplus"
+        else np.asarray(estimate.infimum_points, dtype=float).ravel()
+    )
+    if quantity_key == "density":
+        y_values = np.asarray(estimate.density, dtype=float).ravel()
+        lower = np.asarray(estimate.ci_low, dtype=float).ravel()
+        upper = np.asarray(estimate.ci_high, dtype=float).ravel()
+        ylabel = "infimum density"
+        default_label = "IBP density"
+    else:
+        y_values = np.asarray(estimate.ruin_probability_derivative, dtype=float).ravel()
+        lower = np.asarray(estimate.derivative_ci_low, dtype=float).ravel()
+        upper = np.asarray(estimate.derivative_ci_high, dtype=float).ravel()
+        ylabel = "ruin probability derivative"
+        default_label = "IBP derivative"
+
+    if x_values.size == 0:
+        raise ValueError("estimate must contain at least one surplus value")
+    if x_values.shape != y_values.shape:
+        raise ValueError("estimate arrays must have matching shapes")
+
+    order = np.argsort(x_values)
+    x_sorted = x_values[order]
+    y_sorted = y_values[order]
+    lower_sorted = lower[order]
+    upper_sorted = upper[order]
+
+    axis = _axis(ax)
+    if show_ci:
+        axis.fill_between(
+            x_sorted,
+            lower_sorted,
+            upper_sorted,
+            color="#1f77b4",
+            alpha=band_alpha,
+            linewidth=0,
+        )
+    axis.plot(x_sorted, y_sorted, color="#1f77b4", linewidth=2.0, label=label or default_label)
+    axis.axhline(0.0, color="#222222", linewidth=0.8, linestyle=":")
+    axis.set_xlabel("initial surplus" if x_axis_key == "surplus" else "infimum point")
+    axis.set_ylabel(ylabel)
+    axis.set_title("Finite-time ruin sensitivity")
+    if label is not None:
         axis.legend()
     return axis
 

@@ -31,6 +31,7 @@ from ruin_theory.plotting import (
     plot_finite_time_discrete_boundary,
     plot_finite_time_discrete_computation_set,
     plot_finite_time_discrete_survival,
+    plot_finite_time_ruin_sensitivity,
     plot_finite_time_lundberg_bounds,
     plot_gerber_shiu_closed_form,
     plot_gerber_shiu_scatter,
@@ -100,7 +101,7 @@ from ruin_theory import (
     simplex_reserve_grid,
 )
 from ruin_theory.prevention import optimize_periodic_prevention_calendar
-from ruin_theory.results import RuinEstimate, SimulationPath
+from ruin_theory.results import RuinEstimate, RuinSensitivityEstimate, SimulationPath
 
 
 def _path(*, horizon: float = 3.0, ruin_time: float | None = 1.0) -> SimulationPath:
@@ -127,6 +128,23 @@ def _estimate(ruin_times: np.ndarray, *, horizon: float = 3.0) -> RuinEstimate:
         n_simulations=ruin_times.size,
         horizon=horizon,
         ruin_times=ruin_times,
+    )
+
+
+def _sensitivity_estimate() -> RuinSensitivityEstimate:
+    surplus = np.array([0.0, 1.0, 2.0])
+    density = np.array([0.3, 0.2, 0.1])
+    se = np.array([0.02, 0.01, 0.01])
+    return RuinSensitivityEstimate(
+        surplus=surplus,
+        infimum_points=-surplus,
+        density=density,
+        standard_error=se,
+        ci_low=density - se,
+        ci_high=density + se,
+        n_simulations=100,
+        horizon=2.0,
+        claim_arrival_rate=0.5,
     )
 
 
@@ -208,6 +226,37 @@ def test_plot_ruin_curve_validates_and_labels_probability_curve():
 
     with pytest.raises(ValueError, match="less than or equal"):
         plot_ruin_curve([0.0], [0.5], ci_low=[0.6], ci_high=[0.4])
+
+
+def test_plot_finite_time_ruin_sensitivity_draws_density_and_derivative():
+    estimate = _sensitivity_estimate()
+    fig, axes = plt.subplots(1, 2)
+    try:
+        density = plot_finite_time_ruin_sensitivity(estimate, ax=axes[0], label="IBP")
+        derivative = plot_finite_time_ruin_sensitivity(
+            estimate,
+            ax=axes[1],
+            quantity="derivative",
+            x_axis="infimum",
+            show_ci=False,
+        )
+
+        assert density is axes[0]
+        assert derivative is axes[1]
+        assert axes[0].get_xlabel() == "initial surplus"
+        assert axes[0].get_ylabel() == "infimum density"
+        assert axes[1].get_xlabel() == "infimum point"
+        assert axes[1].get_ylabel() == "ruin probability derivative"
+        assert len(axes[0].collections) == 1
+        assert len(axes[1].collections) == 0
+        np.testing.assert_allclose(axes[1].lines[0].get_ydata(), [-0.1, -0.2, -0.3])
+    finally:
+        plt.close(fig)
+
+    with pytest.raises(ValueError, match="quantity"):
+        plot_finite_time_ruin_sensitivity(estimate, quantity="unknown")
+    with pytest.raises(ValueError, match="x_axis"):
+        plot_finite_time_ruin_sensitivity(estimate, x_axis="time")
 
 
 def test_plot_win_first_surface_hazard_and_sensitivity():

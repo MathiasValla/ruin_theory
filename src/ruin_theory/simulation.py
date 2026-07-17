@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import math
+from typing import Callable
 
 import numpy as np
+from numpy.typing import ArrayLike
 from scipy import stats
 
 from .models import CapitalInjectionModel, CramerLundbergProcess, RiskProcess
-from .results import RuinEstimate, SimulationPath
+from .results import RuinEstimate, RuinSensitivityEstimate, SimulationPath
 
 
 def _rng(seed: int | None | np.random.Generator) -> np.random.Generator:
@@ -61,23 +63,34 @@ def _advance_claim_clock(model: RiskProcess, current_time: float, interarrival: 
 
 
 def _sample_claim_amount(model: RiskProcess, rng: np.random.Generator) -> float:
-    primary = np.asarray(model.claim_distribution.sample(1, rng=rng), dtype=float)
-    primary = np.asarray(model.prevention.apply_severity(primary), dtype=float)
-    if primary.shape != (1,):
-        raise ValueError("claim distribution must return one value for n=1")
-    if math.isnan(float(primary[0])) or primary[0] < 0:
-        raise ValueError("claim severity must be non-negative")
+    return float(_sample_effective_claim_amounts(model, 1, rng)[0])
 
-    by_total = 0.0
+
+def _sample_effective_claim_amounts(
+    model: RiskProcess,
+    n_claims: int,
+    rng: np.random.Generator,
+) -> np.ndarray:
+    """Sample primary claims after prevention plus event-level by-claims."""
+
+    if n_claims < 0:
+        raise ValueError("n_claims must be non-negative")
+    if n_claims == 0:
+        return np.empty(0)
+    primary = _validate_sample(
+        model.prevention.apply_severity(model.claim_distribution.sample(n_claims, rng=rng)),
+        n_claims,
+        "claim distribution",
+    )
+    totals = primary.copy()
     for by_claim in model.by_claims:
-        secondary = np.asarray(by_claim.sample_total(1, rng=rng), dtype=float)
-        if secondary.shape != (1,):
-            raise ValueError("by-claim model must return one total for one primary claim")
-        if math.isnan(float(secondary[0])) or secondary[0] < 0:
-            raise ValueError("by-claim severity must be non-negative")
-        by_total += float(secondary[0])
-
-    return float(primary[0] + by_total)
+        secondary = _validate_sample(
+            by_claim.sample_total(n_claims, rng=rng),
+            n_claims,
+            "by-claim model",
+        )
+        totals += secondary
+    return totals
 
 
 def simulate_path(
@@ -237,19 +250,8 @@ def _simulate_terminal_reserves_cramer_lundberg(
     total_claims = int(counts.sum())
     claim_totals = np.zeros(n_simulations, dtype=float)
     if total_claims > 0:
-        primary = _validate_sample(
-            model.prevention.apply_severity(model.claim_distribution.sample(total_claims, rng=rng)),
-            total_claims,
-            "claim distribution",
-        )
-        claim_totals += _aggregate_by_counts(primary, counts)
-        for by_claim in model.by_claims:
-            secondary = _validate_sample(
-                by_claim.sample_total(total_claims, rng=rng),
-                total_claims,
-                "by-claim model",
-            )
-            claim_totals += _aggregate_by_counts(secondary, counts)
+        claim_amounts = _sample_effective_claim_amounts(model, total_claims, rng)
+        claim_totals += _aggregate_by_counts(claim_amounts, counts)
 
     injection_totals = np.zeros(n_simulations, dtype=float)
     for injection in model.capital_injections:
@@ -335,6 +337,188 @@ def estimate_ruin_probability(
     if return_paths:
         return estimate, paths
     return estimate
+
+
+def _as_surplus_array(u: ArrayLike) -> np.ndarray:
+    surplus = np.asarray(u, dtype=float)
+    if np.any(~np.isfinite(surplus)):
+        raise ValueError("u must contain only finite values")
+    if np.any(surplus < 0.0):
+        raise ValueError("u must be non-negative")
+    return surplus
+
+
+def _premium_income_values(
+    premium_income: Callable[[np.ndarray], ArrayLike] | None,
+    times: np.ndarray,
+    premium_rate: float,
+) -> np.ndarray:
+    if premium_income is None:
+        return premium_rate * times
+    values = np.asarray(premium_income(times), dtype=float)
+    if values.shape == () and times.shape == (1,):
+        values = values.reshape(1)
+    if values.shape != times.shape:
+        raise ValueError("premium_income must preserve the input shape")
+    if np.any(~np.isfinite(values)):
+        raise ValueError("premium_income must return finite values")
+    if np.any(values < 0.0):
+        raise ValueError("premium_income must be non-negative")
+    return values
+
+
+def _validate_loisel_privault_process(model: RiskProcess) -> CramerLundbergProcess:
+    if not isinstance(model, CramerLundbergProcess):
+        raise ValueError("Loisel-Privault IBP estimation requires a CramerLundbergProcess")
+    if model.capital_injections:
+        raise ValueError("Loisel-Privault IBP estimation does not support capital injections")
+    if model.prevention.frequency_windows:
+        raise ValueError("Loisel-Privault IBP estimation requires homogeneous claim arrivals")
+    return model
+
+
+def estimate_finite_time_ruin_sensitivity_ibp(
+    model: CramerLundbergProcess,
+    u: ArrayLike,
+    horizon: float,
+    *,
+    n_simulations: int = 10_000,
+    ci_level: float = 0.95,
+    seed: int | None = None,
+    premium_income: Callable[[np.ndarray], ArrayLike] | None = None,
+    conditional_on_claim: bool = False,
+    return_pathwise_density: bool = False,
+) -> RuinSensitivityEstimate:
+    """Estimate ``d psi(u,T) / du`` by the Loisel-Privault IBP formula.
+
+    The estimator targets the density of
+    ``M_[0,T] = inf_{0<=t<=T} (f(t) - S(t))`` at ``-u``. For the usual
+    finite-time ruin probability ``psi(u,T) = P(M_[0,T] < -u)``, this density
+    is ``-d psi(u,T) / du``. The default premium income is the linear income
+    ``model.premium_rate * t``; a deterministic increasing ``premium_income``
+    callable can be supplied to reproduce the paper's more general ``f(t)``.
+    """
+
+    cl_model = _validate_loisel_privault_process(model)
+    if not math.isfinite(horizon) or horizon <= 0.0:
+        raise ValueError("horizon must be positive and finite")
+    if n_simulations <= 0:
+        raise ValueError("n_simulations must be positive")
+    if not 0.0 < ci_level < 1.0:
+        raise ValueError("ci_level must lie in (0, 1)")
+
+    surplus = _as_surplus_array(u)
+    flat_surplus = surplus.ravel()
+    infimum_points = -flat_surplus
+    if flat_surplus.size == 0:
+        raise ValueError("u must contain at least one value")
+
+    f0 = float(_premium_income_values(premium_income, np.array([0.0]), cl_model.premium_rate)[0])
+    if abs(f0) > 1e-10:
+        raise ValueError("premium_income must satisfy f(0) = 0")
+    final_income = float(
+        _premium_income_values(premium_income, np.array([horizon]), cl_model.premium_rate)[0]
+    )
+
+    claim_arrival_rate = cl_model.claim_arrival_rate
+    if claim_arrival_rate == 0.0:
+        if conditional_on_claim:
+            raise ValueError("conditional density is undefined when the claim arrival rate is zero")
+        zeros = np.zeros_like(surplus, dtype=float)
+        return RuinSensitivityEstimate(
+            surplus=surplus,
+            infimum_points=-surplus,
+            density=zeros,
+            standard_error=zeros,
+            ci_low=zeros,
+            ci_high=zeros,
+            n_simulations=int(n_simulations),
+            horizon=float(horizon),
+            claim_arrival_rate=0.0,
+            conditional_on_claim=False,
+        )
+
+    rng = np.random.default_rng(seed)
+    counts = rng.poisson(claim_arrival_rate * horizon, size=n_simulations)
+    actual_offsets = np.r_[0, np.cumsum(counts)]
+    formula_claim_counts = counts + 1
+    claim_offsets = np.r_[0, np.cumsum(formula_claim_counts)]
+    all_times = rng.uniform(0.0, horizon, size=int(counts.sum()))
+    all_claims = _sample_effective_claim_amounts(
+        cl_model,
+        int(formula_claim_counts.sum()),
+        rng,
+    )
+
+    contributions = np.zeros((n_simulations, flat_surplus.size), dtype=float)
+    for index, n_claims_raw in enumerate(counts):
+        n_claims = int(n_claims_raw)
+        claim_start = int(claim_offsets[index])
+        claim_end = int(claim_offsets[index + 1])
+        cumulative_claims = np.cumsum(all_claims[claim_start:claim_end])
+        terminal_claim_sum = float(cumulative_claims[n_claims])
+
+        if n_claims:
+            time_start = int(actual_offsets[index])
+            time_end = int(actual_offsets[index + 1])
+            claim_times = np.sort(all_times[time_start:time_end])
+            income = _premium_income_values(premium_income, claim_times, cl_model.premium_rate)
+            if np.any(np.diff(income) < -1e-10) or income[-1] > final_income + 1e-10:
+                raise ValueError("premium_income must be increasing on [0, horizon]")
+
+            running_values = income - cumulative_claims[:n_claims]
+            prefix_min = np.minimum.accumulate(running_values)
+            shifted_values = income - cumulative_claims[1 : n_claims + 1]
+            suffix_min = np.minimum.accumulate(shifted_values[::-1])[::-1]
+            previous_income = np.r_[0.0, income[:-1]]
+            lower = previous_income - cumulative_claims[:n_claims]
+            upper = np.minimum(prefix_min, suffix_min)
+            contributions[index] += np.sum(
+                (lower[:, None] < infimum_points[None, :])
+                & (infimum_points[None, :] <= upper[:, None]),
+                axis=0,
+            )
+            minimum_running_value = float(prefix_min[-1])
+            last_income = float(income[-1])
+        else:
+            minimum_running_value = math.inf
+            last_income = 0.0
+
+        terminal_lower = max(-terminal_claim_sum, last_income - terminal_claim_sum)
+        terminal_upper = min(final_income - terminal_claim_sum, minimum_running_value)
+        contributions[index] += (terminal_lower < infimum_points) & (
+            infimum_points < terminal_upper
+        )
+
+    scale = claim_arrival_rate
+    if conditional_on_claim:
+        probability_at_least_one_claim = 1.0 - math.exp(-claim_arrival_rate * horizon)
+        scale /= probability_at_least_one_claim
+    contributions *= scale
+    density_flat = np.mean(contributions, axis=0)
+    if n_simulations > 1:
+        standard_error_flat = np.std(contributions, axis=0, ddof=1) / math.sqrt(n_simulations)
+    else:
+        standard_error_flat = np.zeros_like(density_flat)
+    z = float(stats.norm.ppf(0.5 + ci_level / 2.0))
+    ci_low_flat = np.maximum(density_flat - z * standard_error_flat, 0.0)
+    ci_high_flat = density_flat + z * standard_error_flat
+
+    output_shape = surplus.shape
+    stored_pathwise = contributions if return_pathwise_density else np.empty((0, 0))
+    return RuinSensitivityEstimate(
+        surplus=surplus,
+        infimum_points=(-surplus),
+        density=density_flat.reshape(output_shape),
+        standard_error=standard_error_flat.reshape(output_shape),
+        ci_low=ci_low_flat.reshape(output_shape),
+        ci_high=ci_high_flat.reshape(output_shape),
+        n_simulations=int(n_simulations),
+        horizon=float(horizon),
+        claim_arrival_rate=float(claim_arrival_rate),
+        conditional_on_claim=bool(conditional_on_claim),
+        pathwise_density=stored_pathwise,
+    )
 
 
 def simulate_terminal_reserves(

@@ -11,6 +11,7 @@ The first release focuses on a reliable computational core:
 - Aggregate-loss distributions by Panjer recursion, with VaR and TVaR helpers.
 - Exact Cramer-Lundberg formulas where implemented; simulation otherwise.
 - Monte Carlo estimators, trajectory simulation and plotting diagnostics.
+- Loisel-Privault finite-time sensitivity estimates via integration by parts.
 
 The package is being built from the notation and computational priorities in
 Asmussen and Albrecher, *Ruin Probabilities*, Lefevre's ruin-theory notes, and
@@ -46,6 +47,9 @@ published actuarial software examples used as numerical reference checks.
 - [Matrix-analytic prevention example](examples/matrix_analytic_prevention.py):
   matrix-exponential ruin, PH renewal counts, closed Gerber-Shiu transforms,
   dynamic seasonal prevention and two-claim prevention plots.
+- [Loisel-Privault sensitivity example](examples/loisel_privault_sensitivity.py):
+  integration-by-parts infimum-density curves, exponential finite-difference
+  validation and Pareto heavy-tail diagnostics.
 
 ## Quick start
 
@@ -161,6 +165,10 @@ Cramer-Lundberg primary-claim models with linear severity scaling:
   diagnostics;
 - Gerber-Shiu discounted penalty diagnostics with deficit-at-ruin and
   surplus-before-ruin plots;
+- Loisel-Privault integration-by-parts density estimation for the running
+  infimum, yielding direct finite-time ruin sensitivity
+  `d psi(u,T) / du` without finite differences, with plots for density or
+  derivative diagnostics;
 - De Vylder three-moment approximation for supported severity families.
 
 Sparre-Andersen arrivals, by-claims, INAR/BINAR dependent by-claims, capital
@@ -172,6 +180,9 @@ Premium-dependent finite-time dynamics and richer
 matrix-valued dependence solvers remain planned beyond the current lattice
 finite-time formulas; the detailed finite-time implementation roadmap is in
 `docs/features.md`.
+Jump-diffusion infimum-density formulas suggested by Loisel and Privault
+remain future work because the article's representation still requires
+additional bridge-density computation to become a practical package routine.
 
 ## Scientific references
 
@@ -183,6 +194,8 @@ Finite-time discrete formulas follow Picard and Lefevre (1997, 1998),
 Rulliere and Loisel (2004), Seal (1969), Takacs (1962), De Vylder (1999),
 Ignatov, Kaishev and Krachunov (2001), and the finite-horizon reviews and
 extensions by Lefevre and Loisel.
+Finite-time sensitivity and infimum-density Monte Carlo follows Loisel and
+Privault's integration-by-parts representation.
 Time-in-red and reserve-allocation diagnostics follow dos Reis (1993), Gerber
 (1988), Loisel (2005), and Dickson and dos Reis (1996).
 Markov-modulated multirisk common-shock recursions and dependence diagnostics
