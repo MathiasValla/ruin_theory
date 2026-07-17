@@ -30,6 +30,11 @@ from .integer_byclaims import IntegerByClaimPath
 from .markov_modulated import DependenceImpactResult, MarkovModulatedRuinResult, solvency_region
 from .matrix_analytic import PhaseTypeRenewalCountResult
 from .multirisk_dividends import MultiriskDividendCTMCResult, MultiriskDividendConvergenceResult
+from .ordered_risk import (
+    DualRiskProcess,
+    PremiumBoundary,
+    dual_poisson_exponential_ruin_time_density,
+)
 from .prevention import DynamicPreventionResult, PeriodicPreventionResult, TwoClaimPreventionResult
 from .red_time import AllocationGridResult, RedTimeCurveResult, ReserveAllocationResult
 from .regular_variation import (
@@ -39,6 +44,7 @@ from .regular_variation import (
     RegularVariationDiagnostic,
 )
 from .gerber_shiu import GerberShiuExponentialClosedForm
+from .levy_driven import ExponentialConvergenceResult
 from .results import GerberShiuResult, RuinEstimate, RuinSensitivityEstimate, SimulationPath
 
 
@@ -176,6 +182,189 @@ def plot_ruin_curve(
     axis.set_ylim(0.0, 1.0)
     if label:
         axis.legend()
+    return axis
+
+
+def plot_polynomial_expansion_error(
+    u: ArrayLike,
+    exact: ArrayLike,
+    approximations: ArrayLike | dict[str, ArrayLike],
+    *,
+    ax: Axes | None = None,
+    labels: Iterable[str] | None = None,
+    relative: bool = False,
+) -> Axes:
+    """Plot approximation error for orthogonal-polynomial ruin expansions."""
+
+    surplus = _as_1d_float(u, "u")
+    exact_values = _as_1d_float(exact, "exact")
+    if exact_values.shape != surplus.shape:
+        raise ValueError("exact must match u shape")
+
+    axis = _axis(ax)
+    if isinstance(approximations, dict):
+        items = list(approximations.items())
+    else:
+        values = np.asarray(approximations, dtype=float)
+        if values.ndim == 1:
+            values = values.reshape(1, -1)
+        if values.ndim != 2 or values.shape[1] != surplus.size:
+            raise ValueError("approximations must have shape (n_curves, len(u))")
+        label_list = list(labels) if labels is not None else [None] * values.shape[0]
+        items = list(zip(label_list, values, strict=True))
+
+    for label, approximation in items:
+        approx_values = _as_1d_float(approximation, "approximation")
+        if approx_values.shape != surplus.shape:
+            raise ValueError("each approximation must match u shape")
+        errors = approx_values - exact_values
+        if relative:
+            scale = np.maximum(np.abs(exact_values), np.finfo(float).eps)
+            errors = errors / scale
+        axis.plot(surplus, errors, linewidth=2.0, label=label)
+    axis.axhline(0.0, color="#222222", linewidth=0.8, linestyle=":")
+    axis.set_xlabel("initial surplus")
+    axis.set_ylabel("relative approximation error" if relative else "approximation error")
+    axis.set_title("Polynomial expansion error")
+    if any(label is not None for label, _ in items):
+        axis.legend()
+    return axis
+
+
+def plot_exponential_convergence_rates(
+    x: ArrayLike,
+    rates: ArrayLike | dict[str, ArrayLike],
+    *,
+    ax: Axes | None = None,
+    x_label: str = "parameter",
+    label: str | None = None,
+) -> Axes:
+    """Plot exponential convergence rates over a scalar parameter grid."""
+
+    x_values = _as_1d_float(x, "x")
+    axis = _axis(ax)
+    if isinstance(rates, dict):
+        for curve_label, curve in rates.items():
+            y_values = _as_1d_float(curve, "rate curve")
+            if y_values.shape != x_values.shape:
+                raise ValueError("each rate curve must match x shape")
+            axis.plot(x_values, y_values, linewidth=2.0, marker="o", label=curve_label)
+    else:
+        y_values = _as_1d_float(rates, "rates")
+        if y_values.shape != x_values.shape:
+            raise ValueError("rates must match x shape")
+        axis.plot(x_values, y_values, linewidth=2.0, marker="o", label=label)
+    axis.set_xlabel(x_label)
+    axis.set_ylabel("exponential convergence rate")
+    axis.set_title("Finite-to-ultimate convergence")
+    if isinstance(rates, dict) or label is not None:
+        axis.legend()
+    return axis
+
+
+def plot_convergence_rate_bound(
+    result: ExponentialConvergenceResult,
+    horizons: ArrayLike,
+    *,
+    stationary_exponential_moment: float | None = None,
+    ax: Axes | None = None,
+) -> Axes:
+    """Plot the exponential finite-to-ultimate ruin gap factor or bound."""
+
+    horizon_values = _as_1d_float(horizons, "horizons")
+    if np.any(horizon_values < 0.0):
+        raise ValueError("horizons must be non-negative")
+    if stationary_exponential_moment is None:
+        values = result.factor(horizon_values)
+        ylabel = "exp(-kT)"
+    else:
+        values = result.gap_bound(horizon_values, stationary_exponential_moment)
+        ylabel = "gap bound"
+    axis = _axis(ax)
+    axis.plot(horizon_values, values, color="#0b6e4f", linewidth=2.0)
+    axis.set_xlabel("horizon")
+    axis.set_ylabel(ylabel)
+    axis.set_title("Finite-to-ultimate gap decay")
+    return axis
+
+
+def plot_ordered_two_sided_boundaries(
+    boundary: PremiumBoundary,
+    initial_capital: float,
+    upper_barrier: float,
+    horizon: float,
+    *,
+    ax: Axes | None = None,
+    aggregate_times: ArrayLike | None = None,
+    aggregate_claims: ArrayLike | None = None,
+    n_grid: int = 200,
+) -> Axes:
+    """Plot aggregate-claim boundaries for ordered two-sided exit problems."""
+
+    if not isinstance(boundary, PremiumBoundary):
+        raise TypeError("boundary must be a PremiumBoundary")
+    if n_grid < 2:
+        raise ValueError("n_grid must be at least two")
+    initial = float(initial_capital)
+    barrier = float(upper_barrier)
+    if not np.isfinite(initial) or initial < 0.0:
+        raise ValueError("initial_capital must be finite and non-negative")
+    if not np.isfinite(barrier) or barrier <= initial:
+        raise ValueError("upper_barrier must be finite and greater than initial_capital")
+    horizon_value = float(horizon)
+    if not np.isfinite(horizon_value) or horizon_value <= 0.0:
+        raise ValueError("horizon must be finite and positive")
+
+    times = np.linspace(0.0, horizon_value, n_grid)
+    h_values = np.array([boundary.value(float(time)) for time in times])
+    lower = h_values - (barrier - initial)
+    upper = h_values + initial
+
+    axis = _axis(ax)
+    axis.plot(times, lower, color="#b00020", linewidth=1.8, label="lower exit")
+    axis.plot(times, upper, color="#0b6e4f", linewidth=1.8, label="ruin boundary")
+    if (aggregate_times is None) != (aggregate_claims is None):
+        raise ValueError("aggregate_times and aggregate_claims must be provided together")
+    if aggregate_times is not None and aggregate_claims is not None:
+        path_times = _as_1d_float(aggregate_times, "aggregate_times")
+        path_values = _as_1d_float(aggregate_claims, "aggregate_claims")
+        if path_times.shape != path_values.shape:
+            raise ValueError("aggregate_times and aggregate_claims must match")
+        axis.step(path_times, path_values, where="post", color="#1f77b4", linewidth=1.5)
+    axis.set_xlim(0.0, horizon_value)
+    axis.set_xlabel("time")
+    axis.set_ylabel("aggregate claims")
+    axis.set_title("Ordered two-sided boundaries")
+    axis.legend()
+    return axis
+
+
+def plot_dual_ruin_time_density(
+    process: DualRiskProcess,
+    times: ArrayLike,
+    *,
+    density: ArrayLike | None = None,
+    ax: Axes | None = None,
+    show_atom: bool = True,
+) -> Axes:
+    """Plot the Poisson-exponential dual-risk ruin-time density."""
+
+    time_values = _as_1d_float(times, "times")
+    if np.any(time_values < 0.0):
+        raise ValueError("times must be non-negative")
+    if density is None:
+        density_values = dual_poisson_exponential_ruin_time_density(process, time_values)
+    else:
+        density_values = _as_1d_float(density, "density")
+        if density_values.shape != time_values.shape:
+            raise ValueError("density must match times shape")
+    axis = _axis(ax)
+    axis.plot(time_values, density_values, color="#1f77b4", linewidth=2.0)
+    if show_atom:
+        axis.axvline(process.earliest_ruin_time, color="#b00020", linewidth=1.2, linestyle=":")
+    axis.set_xlabel("time")
+    axis.set_ylabel("density")
+    axis.set_title("Dual ruin-time density")
     return axis
 
 

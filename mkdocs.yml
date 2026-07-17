@@ -1,0 +1,17 @@
+site_name: ruin-theory
+site_description: Numerical and simulation tools for ruin theory in Python.
+theme:
+  name: material
+nav:
+  - Home: index.md
+  - Features: features.md
+  - References: references.md
+  - Validation: validation.md
+  - Method Provenance: method_provenance_table.md
+  - Reproducing R actuar: reproduce_r_actuar_package.md
+  - Public Release Checklist: public_release_checklist.md
+markdown_extensions:
+  - admonition
+  - codehilite
+  - toc:
+      permalink: true

@@ -1,0 +1,18 @@
+cff-version: 1.2.0
+message: "If you use ruin-theory in scientific work, please cite the package and the source papers for the methods you use."
+title: "ruin-theory: Numerical and simulation tools for ruin theory in Python"
+version: 0.1.0
+date-released: 2026-07-17
+license: MIT
+authors:
+  - family-names: Valla
+    given-names: Mathias
+abstract: "A Python package for classical and renewal ruin theory, finite-time ruin recursions, prevention, red-time diagnostics, multirisk models, heavy-tail asymptotics, and reproducible numerical validation."
+preferred-citation:
+  type: software
+  title: "ruin-theory: Numerical and simulation tools for ruin theory in Python"
+  authors:
+    - family-names: Valla
+      given-names: Mathias
+  year: 2026
+  version: 0.1.0

@@ -1,0 +1,19 @@
+{
+  "title": "ruin-theory: Numerical and simulation tools for ruin theory in Python",
+  "upload_type": "software",
+  "description": "A Python package for classical and renewal ruin theory, finite-time ruin recursions, prevention, red-time diagnostics, multirisk models, heavy-tail asymptotics, and reproducible numerical validation.",
+  "creators": [
+    {
+      "name": "Valla, Mathias"
+    }
+  ],
+  "license": "MIT",
+  "keywords": [
+    "ruin theory",
+    "risk theory",
+    "actuarial science",
+    "scientific software",
+    "Python"
+  ],
+  "notes": "This metadata prepares a Zenodo software record. Create the DOI only after the public repository and release artifact have been finalized."
+}

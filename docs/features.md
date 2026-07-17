@@ -985,6 +985,18 @@ Available functions:
   Pollaczek-Khinchine matrix-tail ultimate ruin probability for
   matrix-exponential claim sizes. It also accepts phase-type claims and then
   delegates to `ultimate_ruin_phase_type`.
+- `fit_ultimate_ruin_polynomial_expansion(model, order, xi=None)`: fits a
+  reusable Laguerre expansion of the Pollaczek-Khinchine maximum distribution.
+  The coefficients are computed from the raw severity moments and the
+  compound-geometric representation of the ultimate ruin probability.
+- `ultimate_ruin_polynomial_expansion(model, u, order=20, xi=None)`: evaluates
+  that truncated Laguerre approximation. The default basis scale is the
+  Lundberg adjustment coefficient; custom `xi` values must satisfy the
+  light-tail integrability condition `xi < 2 * adjustment`.
+- `compound_geometric_moments_from_severity(distribution, rho, order,
+  scale=1)`: low-level moment helper for the Pollaczek-Khinchine
+  compound-geometric maximum, useful for validating orthogonal-polynomial
+  coefficients.
 - `finite_time_ruin_exponential(model, u, horizon)`: finite-time formula for
   exponential primary claims.
 - `finite_time_ruin_discrete(claim_pmf, initial_capital, premium_rate,
@@ -1159,6 +1171,28 @@ model = CramerLundbergProcess(
 print(ultimate_ruin_matrix_exponential(model, np.array([0.0, 1.0, 2.0])))
 ```
 
+Orthogonal-polynomial ruin example:
+
+```python
+import numpy as np
+from ruin_theory import (
+    CramerLundbergProcess,
+    exponential,
+    fit_ultimate_ruin_polynomial_expansion,
+    ultimate_ruin_exponential,
+)
+
+model = CramerLundbergProcess(
+    premium_rate=1.0,
+    claim_arrival_rate=3.0,
+    claim_distribution=exponential(rate=5.0),
+)
+u = np.linspace(0.0, 5.0, 51)
+expansion = fit_ultimate_ruin_polynomial_expansion(model, order=8)
+print(expansion.coefficients)
+print(np.max(np.abs(expansion(u) - ultimate_ruin_exponential(model, u))))
+```
+
 Panjer/Pollaczek-Khinchine example:
 
 ```python
@@ -1263,6 +1297,149 @@ print(dependent.ruin_probability)
 
 roots = period_lundberg_roots_from_pmf([[0.75, 0.25], [0.75, 0.25]], premiums=[0.5, 0.5])
 print(finite_time_lundberg_bounds(roots, initial_capital=2.0).bounds)
+```
+
+### Levy-Driven Convergence Rates
+
+This block implements exponential finite-to-ultimate convergence-rate
+diagnostics for level-dependent Levy-driven risk processes of the form
+
+```text
+dX_t = p(X_t) dt + sigma(X_t) dW_t - dL_t.
+```
+
+The package maximizes the lower bound
+
+```text
+min_x [p(x) lambda + sigma(x) sigma'(x) lambda
+       - 0.5 sigma(x)^2 lambda^2 - kappa(lambda)]
+```
+
+over admissible positive `lambda`, where `kappa` is the Levy exponent of the
+liability subordinator. For constant coefficients this reproduces the
+published compound-Poisson/gamma-claim rate tables used in the validation
+tests.
+
+Available objects:
+
+- `CompoundPoissonSubordinator(rate, jump_distribution)`: subordinator with
+  exponent `rate * (M_X(lambda) - 1)`.
+- `GammaSubordinator(alpha, beta)`: gamma-process liability with exponent
+  `alpha log(beta / (beta - lambda))`.
+- `InverseGaussianSubordinator(gamma)`: inverse-Gaussian-process liability
+  with mean rate `1 / gamma`.
+- `LevelDependentLevyRiskProcess(premium_rate, liability, diffusion=0,
+  diffusion_derivative=0, initial_capital=0)`: coefficient container. Premium
+  and diffusion can be constants or callables of the current surplus level.
+- `exponential_convergence_rate(process, lambda_upper=None, level_grid=None,
+  grid_size=128)`: returns `ExponentialConvergenceResult` with `lambda_star`,
+  optimized `rate`, the evaluated level grid and helper methods
+  `factor(horizon)` and `gap_bound(horizon, stationary_exponential_moment)`.
+- `finite_to_ultimate_ruin_gap_bound(result, horizon,
+  stationary_exponential_moment)`: convenience wrapper around the result's
+  gap-bound formula.
+
+Minimal example:
+
+```python
+import numpy as np
+from ruin_theory import (
+    CompoundPoissonSubordinator,
+    LevelDependentLevyRiskProcess,
+    exponential_convergence_rate,
+    gamma,
+)
+
+liability = CompoundPoissonSubordinator(
+    rate=1.0,
+    jump_distribution=gamma(shape=2, rate=1),
+)
+process = LevelDependentLevyRiskProcess(
+    premium_rate=1.2 * liability.mean_rate,
+    liability=liability,
+    diffusion=0.5,
+)
+result = exponential_convergence_rate(process)
+print(result.lambda_star, result.rate)
+print(result.factor(np.array([10.0, 20.0])))
+```
+
+### Ordered Risk And Dual Risk Models
+
+This layer implements order-statistic point processes and the ordered/dual-risk
+formulas that reduce finite-time exit events to order-statistic rectangle
+probabilities.
+
+Available order-statistic point processes:
+
+- `poisson_ospp(rate)`.
+- `inhomogeneous_poisson_ospp(cumulative_intensity)`.
+- `negative_binomial_ospp(gamma, beta)`.
+- `linear_birth_immigration_ospp(immigration_rate, birth_rate)`.
+- `linear_death_ospp(initial_size, death_rate)`.
+
+Core functions:
+
+- `uniform_order_stat_rect_probability(lower, upper)`: probability that the
+  ordered uniforms lie in coordinate-wise lower/upper bounds.
+- `PremiumBoundary.linear(rate)`: linear premium accumulation boundary with
+  value, inverse and derivative helpers.
+- `ordered_two_sided_survival(ospp, claim_distribution, boundary,
+  initial_capital, upper_barrier, horizon, ...)`: finite-time survival inside
+  two ordered-model barriers. Deterministic severities are evaluated exactly;
+  continuous severities use conditional Monte Carlo over claim partial sums
+  when `n_simulations > 0`.
+- `ordered_win_first_time_density(ospp, claim_distribution, boundary,
+  initial_capital, upper_barrier, t, ...)`: density kernel for first hitting
+  the upper barrier, currently for exponential/gamma/Erlang severities through
+  conditional Dirichlet sampling.
+- `DualRiskProcess(initial_capital, cost_rate, profit_arrival_rate,
+  profit_distribution)`: dual-risk process with deterministic cost outflow and
+  positive profit jumps.
+- `dual_poisson_exponential_ruin_time_atom(process)`: atom at deterministic
+  ruin before the first profit in the Poisson-exponential dual-risk model.
+- `dual_poisson_exponential_ruin_time_density(process, t)` and
+  `dual_poisson_exponential_ruin_time_cdf(process, t)`: Bessel-density formula
+  and numerical CDF for Poisson-exponential profits.
+- `dual_mixed_poisson_ruin_time_density(mixing_laplace, initial_capital,
+  cost_rate, profit_rate, t, step=1e-5)`: mixed-Poisson extension using
+  numerical differentiation of the mixing Laplace transform.
+
+Minimal example:
+
+```python
+import numpy as np
+from ruin_theory import (
+    DualRiskProcess,
+    PremiumBoundary,
+    deterministic,
+    dual_poisson_exponential_ruin_time_density,
+    exponential,
+    ordered_two_sided_survival,
+    poisson_ospp,
+)
+
+ospp = poisson_ospp(rate=2.0)
+boundary = PremiumBoundary.linear(rate=1.0)
+survival = ordered_two_sided_survival(
+    ospp,
+    deterministic(0.1),
+    boundary,
+    initial_capital=0.5,
+    upper_barrier=2.0,
+    horizon=1.0,
+    max_claims=8,
+)
+
+dual = DualRiskProcess(
+    initial_capital=1.0,
+    cost_rate=1.0,
+    profit_arrival_rate=1.0,
+    profit_distribution=exponential(rate=1.0),
+)
+times = np.linspace(0.0, 6.0, 100)
+print(survival)
+print(dual_poisson_exponential_ruin_time_density(dual, times).max())
 ```
 
 ### Interest Force, Double Barrier And Win-First
@@ -2271,6 +2448,20 @@ Available diagnostics:
   x_axis="surplus", show_ci=True, label=None, band_alpha=0.18)`: plot the
   Loisel-Privault infimum density or the corresponding ruin-probability
   derivative.
+- `plot_polynomial_expansion_error(u, exact, approximations, ax=None,
+  relative=False)`: absolute or relative error curves for Laguerre
+  ultimate-ruin approximations.
+- `plot_exponential_convergence_rates(parameter_values, rates, ax=None,
+  x_label="parameter")`: convergence-rate comparison across volatilities,
+  safety loadings or other scalar parameters.
+- `plot_convergence_rate_bound(result, horizons, ax=None,
+  stationary_exponential_moment=None)`: finite-to-ultimate exponential factor
+  or full gap bound over time horizons.
+- `plot_ordered_two_sided_boundaries(boundary, initial_capital,
+  upper_barrier, horizon, ax=None)`: ordered-model lower and upper cumulative
+  claim boundaries.
+- `plot_dual_ruin_time_density(process, times, density=None, ax=None)`:
+  dual-risk ruin-time density with the deterministic no-profit atom marked.
 - `plot_ruin_time_histogram(estimate, ax=None, bins=30)`: conditional ruin-time
   histogram from a Monte Carlo estimate.
 - `plot_deficit_at_ruin(result, ax=None, bins=30)`: conditional deficit-at-ruin
@@ -2494,8 +2685,19 @@ Implemented now:
   probabilities for phase-type primary claims.
 - Matrix-exponential severity distributions with density/survival validation
   and Pollaczek-Khinchine matrix-tail ultimate ruin probabilities.
+- Orthogonal-polynomial/Laguerre ultimate-ruin approximations for light-tailed
+  Cramer-Lundberg models, including reusable coefficients, moment checks and
+  benchmark error plots.
 - Phase-type renewal convolutions, finite-horizon renewal count laws and
   Sparre-Andersen count-mixture ruin probabilities.
+- Level-dependent Levy-driven and jump-diffusion risk-process diagnostics,
+  including compound-Poisson, gamma-process and inverse-Gaussian liability
+  subordinators, optimized exponential convergence rates and finite-to-ultimate
+  gap bounds.
+- Order-statistic point-process constructors, ordered two-sided exit
+  probabilities, ordered win-first density kernels for gamma-family severities
+  and dual-risk ruin-time formulas for Poisson-exponential and mixed-Poisson
+  profit arrivals.
 - Exponential closed-form Gerber-Shiu transforms for discounted ruin and
   deficit moments.
 - Loss moments, coverage transformations and lattice discretization.
@@ -2528,6 +2730,12 @@ Planned extensions:
   dividend/penalty formulas beyond the finite CTMC approximation.
 - Continuous-severity Appell/pseudo-polynomial extensions beyond lattice or
   discretized inputs.
+- Deterministic high-dimensional quadrature for ordered two-sided and
+  win-first formulas with arbitrary continuous severities. The current
+  implementation is exact for deterministic claims and uses controlled
+  conditional Monte Carlo for the continuous-severity kernels documented above.
+- Broader heavy-tail and non-light-tail convergence-rate diagnostics beyond
+  the exponential-moment Levy setting.
 - Operational jump-diffusion infimum-density estimators extending the
   Loisel-Privault bridge-density representation.
 - Larger curated reproduction notebooks for every numerical table in

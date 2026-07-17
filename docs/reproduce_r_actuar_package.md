@@ -3,10 +3,9 @@
 Two scripts recreate the numerical examples from the ruin-theory sections of
 `R_actuar_package.pdf` using this package.
 
-- [examples/reproduce_r_actuar_package.py](../examples/reproduce_r_actuar_package.py)
-  prints the numerical outputs.
-- [examples/r_actuar_package_python.py](../examples/r_actuar_package_python.py)
-  generates a PDF report and standalone PNG figures under `output/`.
+- `examples/reproduce_r_actuar_package.py` prints the numerical outputs.
+- `examples/r_actuar_package_python.py` generates a PDF report and standalone
+  PNG figures under `output/`.
 
 Run:
 

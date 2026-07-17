@@ -68,6 +68,11 @@ features in scientific work.
   57(298), 327-337.
 - De Vylder, F. E. (1999). Numerical finite-time ruin probabilities by the
   Picard-Lefevre formula. *Scandinavian Actuarial Journal*, 1999(2), 97-105.
+- Goffard, P.-O., Loisel, S., and Pommeret, D. (2013). *A polynomial expansion
+  to approximate the ultimate ruin probability in the compound Poisson ruin
+  model*. Working paper.
+- Goffard, P.-O., and Sarantsev, A. (2018). Exponential convergence rate of ruin
+  probabilities for level-dependent Levy-driven risk processes. arXiv:1710.01845v3.
 - Ignatov, Z. G., Kaishev, V. K., and Krachunov, R. S. (2001). An improved
   finite-time ruin probability formula and its Mathematica implementation.
   *Insurance: Mathematics and Economics*, 29(3), 375-386.
@@ -101,6 +106,15 @@ features in scientific work.
   barrier via martingales. *Insurance: Mathematics and Economics*, 37, 216-228.
 - Avanzi, B. (2009). Strategies for dividend distribution: A review. *North
   American Actuarial Journal*, 13(2), 217-251.
+- Goffard, P.-O. (2017). *Two-sided exit problems in the ordered risk model*.
+  HAL: hal-01528204.
+
+## Ordered And Dual Risk Models
+
+- Goffard, P.-O., and Lefevre, C. (2018). Duality in ruin problems for ordered
+  risk models. *Insurance: Mathematics and Economics*, 78, 44-52.
+- Puri, P. S. (1982). On the characterization of point processes with the order
+  statistic property. *Journal of Applied Probability*, 19(1), 39-48.
 
 ## Time In Red And Reserve Allocation
 

@@ -12,6 +12,24 @@ license = { text = "MIT" }
 authors = [
   { name = "Mathias Valla" }
 ]
+keywords = [
+  "actuarial science",
+  "risk theory",
+  "ruin theory",
+  "scientific software",
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: MIT License",
+  "Natural Language :: English",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Scientific/Engineering :: Mathematics",
+]
 dependencies = [
   "numpy>=1.24",
   "scipy>=1.10",
@@ -20,7 +38,23 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+  "coverage[toml]>=7",
+  "pytest-cov>=4",
   "pytest>=7",
+  "ruff>=0.4",
+]
+docs = [
+  "mkdocs>=1.6",
+  "mkdocs-material>=9.5",
+]
+notebooks = [
+  "ipykernel>=6",
+  "jupyter>=1",
+  "notebook>=7",
+]
+release = [
+  "build>=1",
+  "twine>=5",
 ]
 
 [tool.pytest.ini_options]
@@ -30,7 +64,23 @@ pythonpath = ["src"]
 [tool.ruff]
 line-length = 100
 target-version = "py310"
+extend-exclude = ["notebooks/**/*.ipynb"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B"]
+select = ["E4", "E9", "F"]
 
+[tool.ruff.lint.per-file-ignores]
+"src/ruin_theory/__init__.py" = ["F401"]
+"tests/test_public_api.py" = ["F401"]
+
+[tool.coverage.run]
+branch = true
+source = ["ruin_theory"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+exclude_lines = [
+  "pragma: no cover",
+  "if __name__ == .__main__.:",
+]

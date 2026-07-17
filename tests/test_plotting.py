@@ -29,6 +29,9 @@ from ruin_theory.plotting import (
     plot_discrete_time_surplus_cdf,
     plot_dynamic_prevention_policy,
     plot_finite_time_appell_coefficients,
+    plot_convergence_rate_bound,
+    plot_dual_ruin_time_density,
+    plot_exponential_convergence_rates,
     plot_finite_time_discrete_boundary,
     plot_finite_time_discrete_computation_set,
     plot_finite_time_discrete_survival,
@@ -36,10 +39,12 @@ from ruin_theory.plotting import (
     plot_finite_time_lundberg_bounds,
     plot_gerber_shiu_closed_form,
     plot_gerber_shiu_scatter,
+    plot_ordered_two_sided_boundaries,
     plot_path,
     plot_paths,
     plot_periodic_pressure,
     plot_phase_type_renewal_count,
+    plot_polynomial_expansion_error,
     plot_premium_power_calibration,
     plot_prevention_calendar,
     plot_multirisk_dividend_convergence,
@@ -65,6 +70,10 @@ from ruin_theory import (
     BINARByClaimModel,
     CommonShock,
     CramerLundbergProcess,
+    CompoundPoissonSubordinator,
+    DualRiskProcess,
+    LevelDependentLevyRiskProcess,
+    PremiumBoundary,
     INARByClaimModel,
     MarkovEnvironment,
     RedTimeCurveResult,
@@ -75,6 +84,7 @@ from ruin_theory import (
     deterministic,
     exponential,
     evaluate_reserve_allocation_grid,
+    exponential_convergence_rate,
     finite_mean_regular_variation_curve,
     finite_time_markov_modulated_ruin,
     finite_time_ruin_discrete_appell,
@@ -229,6 +239,64 @@ def test_plot_ruin_curve_validates_and_labels_probability_curve():
 
     with pytest.raises(ValueError, match="less than or equal"):
         plot_ruin_curve([0.0], [0.5], ci_low=[0.6], ci_high=[0.4])
+
+
+def test_new_method_plots_return_axes():
+    process = LevelDependentLevyRiskProcess(
+        premium_rate=1.5,
+        liability=CompoundPoissonSubordinator(rate=1.0, jump_distribution=exponential(rate=2.0)),
+    )
+    convergence = exponential_convergence_rate(process)
+    dual = DualRiskProcess(
+        initial_capital=1.0,
+        cost_rate=1.0,
+        profit_arrival_rate=1.0,
+        profit_distribution=exponential(rate=1.0),
+    )
+
+    fig, axes = plt.subplots(2, 3)
+    try:
+        assert (
+            plot_polynomial_expansion_error(
+                [0.0, 1.0],
+                [0.6, 0.2],
+                {"K=2": [0.59, 0.21]},
+                ax=axes[0, 0],
+                relative=True,
+            )
+            is axes[0, 0]
+        )
+        assert (
+            plot_exponential_convergence_rates(
+                [0.0, 1.0],
+                {"eta=0.1": [0.02, 0.01]},
+                ax=axes[0, 1],
+                x_label="volatility",
+            )
+            is axes[0, 1]
+        )
+        assert plot_convergence_rate_bound(convergence, [0.0, 1.0], ax=axes[0, 2]) is axes[0, 2]
+        assert (
+            plot_ordered_two_sided_boundaries(
+                PremiumBoundary.linear(1.0),
+                initial_capital=0.5,
+                upper_barrier=2.0,
+                horizon=2.0,
+                ax=axes[1, 0],
+            )
+            is axes[1, 0]
+        )
+        assert (
+            plot_dual_ruin_time_density(
+                dual,
+                [0.0, 1.0, 2.0],
+                density=[0.0, 0.0, 0.1],
+                ax=axes[1, 1],
+            )
+            is axes[1, 1]
+        )
+    finally:
+        plt.close(fig)
 
 
 def test_plot_finite_time_ruin_sensitivity_draws_density_and_derivative():

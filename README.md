@@ -1,6 +1,19 @@
 # ruin-theory
 
 `ruin-theory` is a Python package for classical and renewal risk processes.
+
+> **Development status.** This package is public but still under active
+> scientific review. The current release should be treated as an alpha /
+> research-preview implementation: APIs may change, validation notebooks are
+> being expanded, and methods should be cited together with their original
+> scientific sources.
+
+> **AI/Codex assistance disclosure.** Parts of the code, documentation,
+> validation planning and manuscript-support material were prepared with
+> assistance from OpenAI Codex under Mathias Valla's supervision. Scientific
+> responsibility, validation, review decisions and final manuscript content
+> remain with the human authors/contributors.
+
 The first release focuses on a reliable computational core:
 
 - Cramer-Lundberg and Sparre-Andersen reserve processes.
@@ -10,12 +23,20 @@ The first release focuses on a reliable computational core:
 - Loss moments, coverage transformations and lattice discretization.
 - Aggregate-loss distributions by Panjer recursion, with VaR and TVaR helpers.
 - Exact Cramer-Lundberg formulas where implemented; simulation otherwise.
+- Orthogonal-polynomial ultimate ruin approximations for light-tailed
+  Cramer-Lundberg models.
+- Levy-driven and jump-diffusion finite-to-ultimate convergence-rate
+  diagnostics.
+- Ordered risk, order-statistic point processes and dual-risk ruin-time
+  formulas.
 - Monte Carlo estimators, trajectory simulation and plotting diagnostics.
 - Loisel-Privault finite-time sensitivity estimates via integration by parts.
 
 The package is being built from the notation and computational priorities in
 Asmussen and Albrecher, *Ruin Probabilities*, Lefevre's ruin-theory notes, and
 published actuarial software examples used as numerical reference checks.
+Private reference PDFs, books and manuscript drafts are intentionally not part
+of the public package or release artifacts.
 
 ## Documentation
 
@@ -26,6 +47,10 @@ published actuarial software examples used as numerical reference checks.
   reproductions of the ruin-theory examples in `R_actuar_package.pdf`.
 - [Scientific references](docs/references.md): full citations and
   acknowledgments.
+- [Validation plan](docs/validation.md): small reproducible numerical targets
+  and paper-specific validation notebooks.
+- [Public release checklist](docs/public_release_checklist.md): PyPI, docs,
+  coverage, Zenodo and private-resource checks before release.
 - [INAR/BINAR by-claim examples](examples/inar_binar_byclaim_examples.py):
   reproducible discrete by-claim simulations and plots.
 - [Gerber-Shiu diagnostics example](examples/gerber_shiu_diagnostics.py):
@@ -53,6 +78,35 @@ published actuarial software examples used as numerical reference checks.
 - [Loisel-Privault sensitivity example](examples/loisel_privault_sensitivity.py):
   integration-by-parts infimum-density curves, exponential finite-difference
   validation and Pareto heavy-tail diagnostics.
+- [Orthogonal-polynomial ruin example](examples/orthogonal_polynomial_ruin.py):
+  Laguerre ultimate-ruin approximations and error plots against an exact
+  exponential benchmark.
+- [Levy convergence-rate example](examples/levy_convergence_rate.py):
+  finite-to-ultimate exponential convergence rates for Levy-driven and
+  jump-diffusion risk processes.
+- [Ordered risk models example](examples/ordered_risk_models.py): two-sided
+  ordered-model survival, win-first densities and dual-risk ruin-time
+  densities.
+- [Validation notebooks](notebooks/validation/README.md): compact notebooks
+  for Markov-modulated multirisk, multirisk CTMC dividends, Loisel-Privault
+  sensitivity and INAR/BINAR by-claims.
+
+## Public Package Preparation
+
+The repository includes the scaffolding needed for a public software-paper
+package:
+
+- PyPI-oriented metadata in `pyproject.toml`;
+- a MkDocs documentation site (`mkdocs.yml`, `docs/`);
+- GitHub Actions CI with tests, coverage, docs build and validation-notebook
+  execution;
+- `CITATION.cff` and `.zenodo.json` metadata templates;
+- a contribution guide with the reviewer rubric:
+  mathematical correctness, API/usability and teaching value.
+
+Before a public release, confirm the repository URL, build artifacts, Zenodo
+DOI, PyPI package name and private-resource exclusions using
+`docs/public_release_checklist.md`.
 
 ## Quick start
 
@@ -144,8 +198,17 @@ Cramer-Lundberg primary-claim models with linear severity scaling:
 - matrix-exponential severity laws beyond standard phase-type representations,
   with validated density/survival grids and ultimate ruin probabilities through
   the Pollaczek-Khinchine matrix tail;
+- orthogonal-polynomial/Laguerre approximations for ultimate ruin probabilities
+  in light-tailed Cramer-Lundberg models, with reusable fitted coefficients and
+  error plots against known benchmarks;
 - phase-type inter-arrival convolutions, finite-horizon renewal count laws and
   Sparre-Andersen count-mixture ruin probabilities;
+- level-dependent Levy-driven risk-process diagnostics, including compound
+  Poisson, gamma-process and inverse-Gaussian subordinators, diffusion terms,
+  optimized exponential convergence rates and finite-to-ultimate gap bounds;
+- order-statistic point processes, ordered two-sided exit probabilities,
+  ordered win-first density kernels for gamma-family severities and dual-risk
+  ruin-time formulas for Poisson-exponential or mixed-Poisson profit arrivals;
 - exponential closed-form Gerber-Shiu transforms for discounted ruin and
   deficit moments, plus the phase-type/matrix-exponential ultimate ruin
   transform as the zero-discount, unit-penalty matrix case;
@@ -189,6 +252,10 @@ finite-time formulas; the detailed finite-time implementation roadmap is in
 Jump-diffusion infimum-density formulas suggested by Loisel and Privault
 remain future work because the article's representation still requires
 additional bridge-density computation to become a practical package routine.
+For ordered risk models, exact deterministic-claim two-sided recursions and
+Monte Carlo conditional integration for continuous severities are implemented;
+fully deterministic high-dimensional quadrature for arbitrary continuous
+severities remains planned.
 
 ## Scientific references
 
@@ -202,6 +269,11 @@ Ignatov, Kaishev and Krachunov (2001), and the finite-horizon reviews and
 extensions by Lefevre and Loisel.
 Finite-time sensitivity and infimum-density Monte Carlo follows Loisel and
 Privault's integration-by-parts representation.
+Orthogonal-polynomial ultimate-ruin approximations follow the Laguerre
+expansion approach of Goffard, Loisel and Pommeret. Levy-driven convergence
+diagnostics follow Goffard and Sarantsev. Ordered risk and dual-risk formulas
+follow Goffard's ordered exit work and Goffard and Lefevre's ordered/dual-risk
+duality results.
 Time-in-red and reserve-allocation diagnostics follow dos Reis (1993), Gerber
 (1988), Loisel (2005), and Dickson and dos Reis (1996).
 Markov-modulated multirisk common-shock recursions and dependence diagnostics
