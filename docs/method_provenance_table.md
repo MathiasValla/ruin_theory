@@ -1,9 +1,9 @@
 # Method Provenance Table
 
-Working table for a JSS-oriented package paper. This is a validation and
-review-routing document, not an authorship contract. Coauthorship should depend
-on substantive scientific, software, validation, writing, or supervision
-contributions and approval of the final manuscript.
+Dear co-developpers and collaborators on the package, this file is a summary of the provenance of every method included in the package, along with an ideal reviewing plan.
+This file acts as a collaborative working table for a software paper. 
+
+Of course, this is just a plan, a validation and review-routing document, not an collaboration/authorship contract. Coauthorship should depend on scientific, software, validation, writing, or supervision contributions and approval of the final manuscript.
 
 | Source paper / source family | Package function(s) | Code file(s) | Test / example file(s) | Reproduced numerical result or current validation | Intended first round of review (not reviewed yet) | Second potential round of review (NOT DONE YET) |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -31,7 +31,7 @@ contributions and approval of the final manuscript.
 | McKenzie (1985); Al-Osh and Alzaid (1987); Du and Li (1991); Pedeli and Karlis (2011); local INAR/BINAR scripts | `INARByClaimModel`, `BINARByClaimModel`, `simulate_inar_byclaim_path`, `simulate_binar_byclaim_path`, `estimate_inar_byclaim_ruin_probability`, `estimate_binar_byclaim_ruin_probability` | `ruin_theory/src/ruin_theory/integer_byclaims.py` | `ruin_theory/tests/test_integer_byclaims.py`; `ruin_theory/examples/inar_binar_byclaim_examples.py`; local scripts in `ressources/` | INAR and BINAR expected-count recursions match closed-form matrix recursions; reserve bookkeeping is checked pathwise; fast terminal-reserve simulation matches theoretical means. Needs a clearer link to the local reference scripts and the intended applied example. | Charles Minier and Quentin Guibert for first-pass review of applied by-claim simulations and new package directions | Edward McKenzie; M.A. Al-Osh; A.A. Alzaid; J.G. Du; Y. Li; X. Pedeli; Dimitris Karlis |
 | Package-level teaching and scientific-software layer | Public API exports, examples, simulation estimators, plotting helpers | `ruin_theory/src/ruin_theory/__init__.py`; `ruin_theory/src/ruin_theory/simulation.py`; `ruin_theory/src/ruin_theory/plotting.py`; `ruin_theory/examples/*.py` | `ruin_theory/tests/test_public_api.py`; `ruin_theory/tests/test_plotting.py`; `ruin_theory/tests/test_simulation.py`; all examples | Public API smoke tests and plotting tests guard the user-facing surface. The next validation step should add notebook-style examples for courses: classical ruin, finite-time formulas, prevention, red time, and climate/heavy-tail risk. | First circle for reviewer/suggestion roles only: Quentin Guibert, Charles Minier, Romain Gauchon, Christophe Dutang, Pierre-Olivier Goffard, Claude Lefevre, Stephane Loisel | Later external software/users review once the public package is polished |
 
-## Immediate Validation Gaps Before Submission
+## Immediate validation gaps before submission (what has been detected and should be revised)
 
 - Add paper-specific reproduction notebooks for rows currently validated mainly
   by internal consistency checks: Markov-modulated multirisk, multirisk CTMC
@@ -43,7 +43,7 @@ contributions and approval of the final manuscript.
 - Convert the table into a CRediT-style contribution map once collaborators have
   accepted concrete roles.
 
-## Suggested Initial Reviewer Packets
+## Note to potential collaborators: suggested initial reviewer packets
 
 - Claude Lefevre: methods where he directly contributed, especially
   Picard-Lefevre finite-time formulas, boundary/Appell recursions,
@@ -62,7 +62,7 @@ contributions and approval of the final manuscript.
   notes and Asmussen-Albrecher-style references, plus new package features under
   current joint development, applied examples and student-facing notebooks. He
   is not listed as a source author for the existing literature.
-- Christophe Dutang: JSS software-paper strategy, comparison with `actuar`,
+- Christophe Dutang: software-paper strategy, comparison with `actuar`,
   package API conventions, reproducibility expectations, and validation through
   R/Python cross-checks.
 - Pierre-Olivier Goffard: orthogonal-polynomial ultimate-ruin approximations,
