@@ -219,3 +219,34 @@ def test_red_time_derivative_helpers_validate_and_compute():
 
     with pytest.raises(ValueError, match="red_time_functions"):
         multirisk_red_time_derivative_sum([1.0], ())
+
+
+def test_multiline_red_time_uses_pre_jump_endpoint_for_zero_crossings():
+    # The first line recovers at t=1, then jumps back down at t=2.
+    line = _path([0.0, 2.0, 2.0, 3.0], [-1.0, 1.0, -2.0, -1.0])
+    support = _path([0.0, 3.0], [10.0, 10.0])
+    result = multiline_red_time_metrics_from_paths([line, support])
+    np.testing.assert_allclose(result.time_in_red, [2.0, 0.0])
+    np.testing.assert_allclose(result.red_time_with_positive_total, [2.0, 0.0])
+    np.testing.assert_allclose(result.negative_area, [2.0, 0.0])
+
+
+def test_multiline_negative_area_uses_the_common_observed_horizon():
+    short = _path([0.0, 1.0], [-1.0, -1.0])
+    long = _path([0.0, 3.0], [-2.0, -2.0])
+    result = multiline_red_time_metrics_from_paths([short, long])
+    assert result.horizon == 1.0
+    np.testing.assert_allclose(result.time_in_red, [1.0, 1.0])
+    np.testing.assert_allclose(result.negative_area, [1.0, 2.0])
+
+
+def test_red_time_horizon_is_the_observed_path_end_when_stopped_at_ruin():
+    from dataclasses import replace
+
+    stopped = replace(_path([0.0, 1.0, 1.0], [1.0, 2.0, -1.0]), horizon=5.0, ruin_time=1.0)
+    result = red_time_metrics_from_path(stopped)
+    assert result.horizon == 1.0
+    assert result.time_in_red == 0.0
+    combined = multiline_red_time_metrics_from_paths([stopped, _path([0, 5], [1, 1])])
+    assert combined.horizon == 1.0
+    np.testing.assert_allclose(combined.time_in_red, 0.0)

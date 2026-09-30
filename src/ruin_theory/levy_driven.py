@@ -97,7 +97,7 @@ class GammaSubordinator:
         argument = _nonnegative_float(lam, "lam")
         if argument >= self.beta:
             return np.inf
-        return self.alpha * math.log(self.beta / (self.beta - argument))
+        return -self.alpha * math.log1p(-argument / self.beta)
 
 
 @dataclass(frozen=True)
@@ -121,9 +121,9 @@ class InverseGaussianSubordinator:
     def levy_exponent(self, lam: float) -> float:
         argument = _nonnegative_float(lam, "lam")
         upper = self.exponential_moment_upper
-        if argument >= upper:
+        if argument > upper:
             return np.inf
-        return self.gamma - math.sqrt(self.gamma**2 - 2.0 * argument)
+        return 2.0 * argument / (self.gamma + math.sqrt(self.gamma**2 - 2.0 * argument))
 
 
 LevySubordinatorLike = (
@@ -155,7 +155,10 @@ class LevelDependentLevyRiskProcess:
         if not callable(self.diffusion):
             object.__setattr__(self, "diffusion", _nonnegative_float(self.diffusion, "diffusion"))
         if self.diffusion_derivative is not None and not callable(self.diffusion_derivative):
-            object.__setattr__(self, "diffusion_derivative", float(self.diffusion_derivative))
+            derivative = float(self.diffusion_derivative)
+            if not math.isfinite(derivative):
+                raise ValueError("diffusion_derivative must be finite")
+            object.__setattr__(self, "diffusion_derivative", derivative)
 
     def premium_at(self, level: float) -> float:
         return _positive_float(_call_or_value(self.premium_rate, level), "premium_rate(level)")
@@ -171,7 +174,10 @@ class LevelDependentLevyRiskProcess:
             if right == left:
                 right = step
             return (self.diffusion_at(right) - self.diffusion_at(left)) / (right - left)
-        return float(_call_or_value(self.diffusion_derivative, level))
+        derivative = _call_or_value(self.diffusion_derivative, level)
+        if not math.isfinite(derivative):
+            raise ValueError("diffusion_derivative(level) must be finite")
+        return derivative
 
     @property
     def net_profit_margin_at_zero(self) -> float:

@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import math
 import operator
 from typing import Literal
 
 import numpy as np
 from numpy.typing import ArrayLike
+from scipy.special import logsumexp
 
 
 FiniteTimeDiscreteMethod = Literal["seal", "takacs", "picard-lefevre", "inventory"]
@@ -250,7 +251,7 @@ def _inventory_times(values: ArrayLike) -> np.ndarray:
     times = _as_finite_1d(values, "inventory_times")
     if np.any(times < 0.0):
         raise ValueError("inventory_times must be non-negative")
-    if np.any(np.diff(times) < -1e-12):
+    if np.any(np.diff(times) < 0.0):
         raise ValueError("inventory_times must be non-decreasing")
     return times
 
@@ -326,7 +327,6 @@ def _arrival_means(
         return None, means
     rate = _finite_nonnegative(claim_arrival_rate, "claim_arrival_rate")
     elapsed = np.diff(np.concatenate(([0.0], times)))
-    elapsed[np.abs(elapsed) <= 1e-12] = 0.0
     return rate, rate * elapsed
 
 
@@ -349,7 +349,7 @@ def _arrival_means_from_cumulative(
     means = np.diff(cumulative)
     if np.any(means < -1e-12):
         raise ValueError("cumulative_arrival_mean must be non-decreasing")
-    means[np.abs(means) <= 1e-12] = 0.0
+    means[means < 0.0] = 0.0
     return means
 
 
@@ -408,22 +408,11 @@ def compound_poisson_appell_base(
     pmf = _claim_pmf(claim_pmf)
     rate = _finite_nonnegative(claim_arrival_rate, "claim_arrival_rate")
     horizon = float(time)
-    if not math.isfinite(horizon):
-        raise ValueError("time must be finite")
+    if not math.isfinite(horizon) or horizon < 0.0:
+        raise ValueError("time must be finite and non-negative")
     max_index = _nonnegative_int(max_degree, "max_degree")
     positive_pmf, effective_rate = _positive_claim_process(pmf, rate)
-    if math.isclose(effective_rate, 0.0, rel_tol=0.0, abs_tol=1e-15):
-        values = np.zeros(max_index + 1, dtype=float)
-        values[0] = 1.0
-        return values
-    if horizon < 0.0:
-        raise ValueError("time must be non-negative for numerical Appell evaluation")
-    aggregate = _compound_poisson_lattice_pmf(
-        positive_pmf,
-        effective_rate * horizon,
-        max_index,
-    )
-    return math.exp(effective_rate * horizon) * aggregate
+    return _lattice_series(positive_pmf * (effective_rate * horizon), max_index, log_scale=0.0)
 
 
 def _call_boundary(boundary: Callable[[float], float], time: float) -> float:
@@ -444,10 +433,15 @@ def _boundary_crossing_time(
     high: float,
     tol: float,
     max_iter: int,
+    strict: bool = False,
 ) -> float:
-    if _call_boundary(boundary, low) >= level:
+    def reached(time: float) -> bool:
+        value = _call_boundary(boundary, time)
+        return value > level if strict else value >= level
+
+    if reached(low):
         return low
-    if _call_boundary(boundary, high) < level:
+    if not reached(high):
         raise ValueError("boundary does not reach all required integer levels")
     left = low
     right = high
@@ -455,7 +449,7 @@ def _boundary_crossing_time(
         middle = 0.5 * (left + right)
         if right - left <= tol:
             break
-        if _call_boundary(boundary, middle) >= level:
+        if reached(middle):
             right = middle
         else:
             left = middle
@@ -515,6 +509,48 @@ def finite_time_discrete_boundary_crossings(
         horizon=time,
         inventory_times=np.asarray(times, dtype=float),
         boundary_values=np.asarray(values, dtype=float),
+    )
+
+
+def _boundary_inventory_grid(
+    boundary: Callable[[float], float],
+    grid: FiniteTimeDiscreteBoundaryGrid,
+    convention: str,
+    root_tol: float,
+    max_bisection: int,
+) -> tuple[FiniteTimeDiscreteBoundaryGrid, np.ndarray]:
+    """Separate first-safe dates from terminal equality, including flat segments."""
+
+    start = _call_boundary(boundary, 0.0)
+    end = _call_boundary(boundary, grid.horizon)
+    terminal_count = _retained_count_from_boundary(end, convention)
+    times: list[float] = []
+    values: list[float] = []
+    counts: list[int] = []
+    first = _floor_nonnegative(start) + 1 if convention == "negative" else _ceil_nonnegative(start)
+    crossings = {}
+    for time, value in zip(grid.inventory_times, grid.boundary_values, strict=True):
+        if value == int(value):
+            crossings.setdefault(int(value), float(time))
+    low = 0.0
+    for level in range(first, terminal_count):
+        if convention == "negative":
+            crossing = crossings[level]
+        else:
+            crossing = _boundary_crossing_time(
+                boundary, level=level, low=low, high=grid.horizon,
+                tol=root_tol, max_iter=max_bisection, strict=True,
+            )
+        times.append(crossing)
+        values.append(float(level))
+        counts.append(level)
+        low = crossing
+    times.append(grid.horizon)
+    values.append(end)
+    counts.append(terminal_count)
+    return (
+        FiniteTimeDiscreteBoundaryGrid(grid.horizon, np.asarray(times), np.asarray(values)),
+        np.asarray(counts, dtype=int),
     )
 
 
@@ -606,39 +642,46 @@ def _compound_poisson_lattice_pmf(
     mean: float,
     max_aggregate: int,
 ) -> np.ndarray:
-    aggregate = np.zeros(max_aggregate + 1, dtype=float)
-    aggregate[0] = math.exp(-mean * (1.0 - float(claim_pmf[0])))
-    if max_aggregate == 0:
-        return aggregate
-    support_max = min(claim_pmf.size - 1, max_aggregate)
-    for j in range(1, max_aggregate + 1):
-        upper = min(j, support_max)
-        if upper == 0:
-            continue
-        indices = np.arange(1, upper + 1)
-        weighted_previous = indices * claim_pmf[1 : upper + 1] * aggregate[j - indices]
-        aggregate[j] = mean * float(np.sum(weighted_previous)) / j
-    return aggregate
+    return _nonhomogeneous_compound_poisson_lattice_pmf(mean * claim_pmf, max_aggregate)
 
 
 def _nonhomogeneous_compound_poisson_lattice_pmf(
     claim_size_intensities: np.ndarray,
     max_aggregate: int,
 ) -> np.ndarray:
+    return _lattice_series(
+        claim_size_intensities, max_aggregate,
+        log_scale=-float(np.sum(claim_size_intensities[1:])),
+    )
+
+
+def _lattice_series(
+    intensities: np.ndarray,
+    max_aggregate: int,
+    *,
+    log_scale: float,
+) -> np.ndarray:
+    """Panjer coefficients, with log-domain propagation for tiny initial mass."""
+
+    support_max = min(intensities.size - 1, max_aggregate)
+    weights = np.arange(1, support_max + 1) * intensities[1 : support_max + 1]
+    if log_scale < -500.0:
+        log_aggregate = np.full(max_aggregate + 1, -np.inf)
+        log_aggregate[0] = log_scale
+        log_weights = np.full(support_max, -np.inf)
+        positive = weights > 0.0
+        log_weights[positive] = np.log(weights[positive])
+        for total in range(1, max_aggregate + 1):
+            upper = min(total, support_max)
+            log_aggregate[total] = logsumexp(
+                log_weights[:upper] + log_aggregate[total - upper : total][::-1],
+            ) - math.log(total)
+        return np.exp(log_aggregate)
     aggregate = np.zeros(max_aggregate + 1, dtype=float)
-    aggregate[0] = math.exp(-float(np.sum(claim_size_intensities[1:])))
-    if max_aggregate == 0:
-        return aggregate
-    support_max = min(claim_size_intensities.size - 1, max_aggregate)
+    aggregate[0] = math.exp(log_scale)
     for total in range(1, max_aggregate + 1):
         upper = min(total, support_max)
-        if upper == 0:
-            continue
-        sizes = np.arange(1, upper + 1)
-        aggregate[total] = (
-            float(np.sum(sizes * claim_size_intensities[1 : upper + 1] * aggregate[total - sizes]))
-            / total
-        )
+        aggregate[total] = np.dot(weights[:upper], aggregate[total - upper : total][::-1]) / total
     return aggregate
 
 
@@ -1013,7 +1056,7 @@ def finite_time_ruin_discrete_boundary_function(
         raise ValueError("provide exactly one of claim_arrival_rate or cumulative_arrival_mean")
     if (
         selected_convention == "nonpositive"
-        and math.isclose(_call_boundary(boundary, 0.0), 0.0, rel_tol=0.0, abs_tol=root_tol)
+        and _call_boundary(boundary, 0.0) == 0.0
     ):
         pmf = _claim_pmf(claim_pmf)
         empty = np.array([], dtype=float)
@@ -1033,21 +1076,28 @@ def finite_time_ruin_discrete_boundary_function(
             state_probabilities=empty,
             convention=f"{selected_convention}; boundary_kind=crossing; initial ruin",
         )
+    grid, counts = _boundary_inventory_grid(
+        boundary, grid, selected_convention, root_tol, max_bisection,
+    )
     arrival_means = (
         None
         if cumulative_arrival_mean is None
         else _arrival_means_from_cumulative(cumulative_arrival_mean, grid.inventory_times)
     )
-    return finite_time_ruin_discrete_boundary(
+    result = finite_time_ruin_discrete_inventory(
         claim_pmf,
         inventory_times=grid.inventory_times,
-        boundary_values=grid.boundary_values,
+        retained_counts=counts,
         claim_arrival_rate=claim_arrival_rate,
         arrival_means=arrival_means,
-        convention=selected_convention,
-        boundary_kind="crossing",
         return_result=return_result,
     )
+    if return_result:
+        return replace(
+            result, boundary_values=grid.boundary_values,
+            convention=f"{selected_convention}; boundary_kind=crossing",
+        )
+    return result
 
 
 def finite_time_ruin_discrete_nonhomogeneous_inventory(
@@ -1147,7 +1197,7 @@ def finite_time_ruin_discrete_nonhomogeneous_boundary_function(
     )
     if (
         selected_convention == "nonpositive"
-        and math.isclose(_call_boundary(boundary, 0.0), 0.0, rel_tol=0.0, abs_tol=root_tol)
+        and _call_boundary(boundary, 0.0) == 0.0
     ):
         empty = np.array([], dtype=float)
         if not return_result:
@@ -1165,27 +1215,40 @@ def finite_time_ruin_discrete_nonhomogeneous_boundary_function(
             convention=f"{selected_convention}; boundary_kind=crossing; initial ruin",
         )
 
+    grid, counts = _boundary_inventory_grid(
+        boundary, grid, selected_convention, root_tol, max_bisection,
+    )
     matrix = _claim_size_intensity_matrix_from_intervals(
         claim_size_intensity_integrals,
         grid.inventory_times,
     )
-    return finite_time_ruin_discrete_nonhomogeneous_boundary(
+    return _nonhomogeneous_result_from_counts(
         matrix,
         inventory_times=grid.inventory_times,
+        retained_counts=counts,
         boundary_values=grid.boundary_values,
-        convention=selected_convention,
-        boundary_kind="crossing",
+        convention=f"{selected_convention}; boundary_kind=crossing; non-stationary claim-size intensities",
         return_result=return_result,
     )
 
 
-def _crossing_time_map(grid: FiniteTimeDiscreteBoundaryGrid) -> dict[int, float]:
-    mapping: dict[int, float] = {}
-    for time, value in zip(grid.inventory_times, grid.boundary_values, strict=True):
-        nearest = round(value)
-        if math.isclose(value, nearest, rel_tol=0.0, abs_tol=1e-10):
-            mapping[int(nearest)] = float(time)
-    return mapping
+def _appell_coefficients_from_grid(
+    pmf: np.ndarray,
+    rate: float,
+    grid: FiniteTimeDiscreteBoundaryGrid,
+    counts: np.ndarray,
+) -> np.ndarray:
+    max_degree = int(counts[-1]) - 1
+    coefficients = np.zeros(max_degree + 1, dtype=float)
+    coefficients[0] = 1.0
+    for degree, time in zip(counts[:-1], grid.inventory_times[:-1], strict=True):
+        if degree == 0 or degree > max_degree:
+            continue
+        base = compound_poisson_appell_base(
+            pmf, claim_arrival_rate=rate, time=float(time), max_degree=int(degree),
+        )
+        coefficients[degree] = -float(np.dot(coefficients[:degree], base[degree:0:-1]))
+    return coefficients
 
 
 def finite_time_discrete_appell_coefficients(
@@ -1207,27 +1270,8 @@ def finite_time_discrete_appell_coefficients(
         root_tol=root_tol,
         max_bisection=max_bisection,
     )
-    max_degree = _retained_count_from_crossing(_call_boundary(boundary, grid.horizon)) - 1
-    coefficients = np.zeros(max_degree + 1, dtype=float)
-    coefficients[0] = 1.0
-    initial_boundary = _call_boundary(boundary, 0.0)
-    first_constrained = _floor_nonnegative(initial_boundary) + 1
-    crossing_times = _crossing_time_map(grid)
-
-    for degree in range(1, max_degree + 1):
-        if degree < first_constrained:
-            continue
-        crossing_time = crossing_times.get(degree)
-        if crossing_time is None:
-            continue
-        base = compound_poisson_appell_base(
-            pmf,
-            claim_arrival_rate=rate,
-            time=crossing_time,
-            max_degree=degree,
-        )
-        coefficients[degree] = -float(np.dot(coefficients[:degree], base[degree:0:-1]))
-    return coefficients
+    grid, counts = _boundary_inventory_grid(boundary, grid, "negative", root_tol, max_bisection)
+    return _appell_coefficients_from_grid(pmf, rate, grid, counts)
 
 
 def finite_time_ruin_discrete_appell(
@@ -1254,7 +1298,7 @@ def finite_time_ruin_discrete_appell(
     )
     if (
         selected_convention == "nonpositive"
-        and math.isclose(_call_boundary(boundary, 0.0), 0.0, rel_tol=0.0, abs_tol=root_tol)
+        and _call_boundary(boundary, 0.0) == 0.0
     ):
         empty = np.array([], dtype=float)
         if not return_result:
@@ -1273,15 +1317,11 @@ def finite_time_ruin_discrete_appell(
             convention=f"{selected_convention}; initial ruin",
         )
 
-    max_degree = _retained_count_from_crossing(_call_boundary(boundary, grid.horizon)) - 1
-    coefficients = finite_time_discrete_appell_coefficients(
-        pmf,
-        claim_arrival_rate=rate,
-        boundary=boundary,
-        horizon=grid.horizon,
-        root_tol=root_tol,
-        max_bisection=max_bisection,
+    grid, counts = _boundary_inventory_grid(
+        boundary, grid, selected_convention, root_tol, max_bisection,
     )
+    max_degree = int(counts[-1]) - 1
+    coefficients = _appell_coefficients_from_grid(pmf, rate, grid, counts)
     base = compound_poisson_appell_base(
         pmf,
         claim_arrival_rate=rate,

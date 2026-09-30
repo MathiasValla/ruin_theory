@@ -39,6 +39,14 @@ def test_discrete_pk_accepts_safety_loading_instead_of_rho():
     np.testing.assert_allclose(ruin, [0.5, 0.25])
 
 
+def test_discrete_pk_snaps_float_roundoff_but_not_points_below_lattice():
+    surplus = np.array([[0.3, 3 * 0.1], [0.3 - 1e-12, 0.3 + 1e-12]])
+    ruin = discrete_pollaczek_khinchine_ultimate_ruin(
+        [0.0, 1.0], surplus, step=0.1, rho=0.5,
+    )
+    np.testing.assert_allclose(ruin, [[0.0625, 0.0625], [0.125, 0.0625]])
+
+
 def test_equilibrium_severity_pmf_discretizes_exponential_integrated_tail():
     pmf = equilibrium_severity_pmf(
         exponential(rate=2.0),
@@ -253,3 +261,16 @@ def test_beekman_panjer_lomax_bounds_match_actuar_reference():
         ],
         atol=5e-6,
     )
+
+
+def test_discrete_pk_rejects_nonfinite_reserves_before_integer_conversion():
+    with pytest.raises(ValueError, match="finite"):
+        discrete_pollaczek_khinchine_ultimate_ruin([0.0, 1.0], [np.inf], rho=0.5)
+
+
+@pytest.mark.parametrize("method", ["lower", "upper"])
+def test_equilibrium_discretization_retains_small_tail_masses(method):
+    pmf = equilibrium_severity_pmf(exponential(1), step=1, max_value=50, method=method)
+    index = 41 if method == "lower" else 40
+    expected = np.exp(-40) - np.exp(-41)
+    assert pmf[index] == pytest.approx(expected, rel=1e-13, abs=0.0)

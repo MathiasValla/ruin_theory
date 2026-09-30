@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 from ruin_theory import (
     CompoundPoissonSubordinator,
@@ -56,3 +57,17 @@ def test_finite_to_ultimate_gap_bound_uses_stationary_exponential_moment():
         finite_to_ultimate_ruin_gap_bound(result, [0.0, 1.0], stationary_exponential_moment=3.0),
         4.0 * np.exp(-result.rate * np.array([0.0, 1.0])),
     )
+
+
+@pytest.mark.parametrize("liability", [GammaSubordinator(1.0, 1.0), InverseGaussianSubordinator(1.0)])
+def test_review_levy_exponent_preserves_small_arguments(liability):
+    assert liability.levy_exponent(1e-18) == pytest.approx(1e-18, rel=1e-14, abs=0.0)
+
+
+def test_review_inverse_gaussian_exponent_is_finite_at_domain_endpoint():
+    assert InverseGaussianSubordinator(2.0).levy_exponent(2.0) == 2.0
+
+
+def test_review_levy_rejects_nonfinite_diffusion_derivative():
+    with pytest.raises(ValueError, match="diffusion_derivative"):
+        LevelDependentLevyRiskProcess(2.0, GammaSubordinator(1.0, 1.0), diffusion_derivative=np.nan)

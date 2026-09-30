@@ -395,8 +395,12 @@ def estimate_finite_time_ruin_sensitivity_ibp(
     ``M_[0,T] = inf_{0<=t<=T} (f(t) - S(t))`` at ``-u``. For the usual
     finite-time ruin probability ``psi(u,T) = P(M_[0,T] < -u)``, this density
     is ``-d psi(u,T) / du``. The default premium income is the linear income
-    ``model.premium_rate * t``; a deterministic increasing ``premium_income``
-    callable can be supplied to reproduce the paper's more general ``f(t)``.
+    ``model.premium_rate * t``. A ``premium_income`` callable may specify a
+    different positive linear income ``c * t``. Nonlinear incomes are rejected:
+    they require path-dependent inverse-derivative weights, not a constant
+    factor. The density at zero denotes the left limit, excluding its atom.
+    Sample moments are accumulated online; the simulations-by-reserves matrix
+    is only retained when ``return_pathwise_density=True``.
     """
 
     cl_model = _validate_loisel_privault_process(model)
@@ -419,6 +423,14 @@ def estimate_finite_time_ruin_sensitivity_ibp(
     final_income = float(
         _premium_income_values(premium_income, np.array([horizon]), cl_model.premium_rate)[0]
     )
+    premium_slope = final_income / horizon
+    if premium_slope <= 0.0:
+        raise ValueError("IBP density estimation requires a positive premium rate")
+    if premium_income is not None:
+        check_times = np.linspace(0.0, horizon, 33)
+        check_income = _premium_income_values(premium_income, check_times, cl_model.premium_rate)
+        if not np.allclose(check_income, premium_slope * check_times, rtol=1e-10, atol=0.0):
+            raise NotImplementedError("IBP estimation currently supports only linear premium_income")
 
     claim_arrival_rate = cl_model.claim_arrival_rate
     if claim_arrival_rate == 0.0:
@@ -436,6 +448,10 @@ def estimate_finite_time_ruin_sensitivity_ibp(
             horizon=float(horizon),
             claim_arrival_rate=0.0,
             conditional_on_claim=False,
+            pathwise_density=(
+                np.zeros((n_simulations, flat_surplus.size))
+                if return_pathwise_density else np.empty((0, 0))
+            ),
         )
 
     rng = np.random.default_rng(seed)
@@ -450,7 +466,12 @@ def estimate_finite_time_ruin_sensitivity_ibp(
         rng,
     )
 
-    contributions = np.zeros((n_simulations, flat_surplus.size), dtype=float)
+    stored_pathwise = (
+        np.empty((n_simulations, flat_surplus.size), dtype=float)
+        if return_pathwise_density else np.empty((0, 0))
+    )
+    mean_contribution = np.zeros(flat_surplus.size, dtype=float)
+    centered_sum_squares = np.zeros_like(mean_contribution)
     for index, n_claims_raw in enumerate(counts):
         n_claims = int(n_claims_raw)
         claim_start = int(claim_offsets[index])
@@ -465,6 +486,12 @@ def estimate_finite_time_ruin_sensitivity_ibp(
             income = _premium_income_values(premium_income, claim_times, cl_model.premium_rate)
             if np.any(np.diff(income) < -1e-10) or income[-1] > final_income + 1e-10:
                 raise ValueError("premium_income must be increasing on [0, horizon]")
+            if premium_income is not None and not np.allclose(
+                income, premium_slope * claim_times, rtol=1e-10, atol=0.0,
+            ):
+                raise NotImplementedError(
+                    "IBP estimation currently supports only linear premium_income"
+                )
 
             running_values = income - cumulative_claims[:n_claims]
             prefix_min = np.minimum.accumulate(running_values)
@@ -473,31 +500,41 @@ def estimate_finite_time_ruin_sensitivity_ibp(
             previous_income = np.r_[0.0, income[:-1]]
             lower = previous_income - cumulative_claims[:n_claims]
             upper = np.minimum(prefix_min, suffix_min)
-            contributions[index] += np.sum(
-                (lower[:, None] < infimum_points[None, :])
-                & (infimum_points[None, :] <= upper[:, None]),
-                axis=0,
-            )
+            # Count (lower, upper] intervals without a claims-by-reserves array.
+            valid = lower < upper
+            contribution = (
+                np.searchsorted(np.sort(lower[valid]), infimum_points, side="left")
+                - np.searchsorted(np.sort(upper[valid]), infimum_points, side="left")
+            ).astype(float)
             minimum_running_value = float(prefix_min[-1])
             last_income = float(income[-1])
         else:
+            contribution = np.zeros_like(mean_contribution)
             minimum_running_value = math.inf
             last_income = 0.0
 
         terminal_lower = max(-terminal_claim_sum, last_income - terminal_claim_sum)
         terminal_upper = min(final_income - terminal_claim_sum, minimum_running_value)
-        contributions[index] += (terminal_lower < infimum_points) & (
+        contribution += (terminal_lower < infimum_points) & (
             infimum_points < terminal_upper
         )
+        if return_pathwise_density:
+            stored_pathwise[index] = contribution
+        # Welford's update avoids cancellation for almost constant samples.
+        delta = contribution - mean_contribution
+        mean_contribution += delta / (index + 1)
+        centered_sum_squares += delta * (contribution - mean_contribution)
 
-    scale = claim_arrival_rate
+    scale = claim_arrival_rate / premium_slope
     if conditional_on_claim:
-        probability_at_least_one_claim = 1.0 - math.exp(-claim_arrival_rate * horizon)
+        probability_at_least_one_claim = -math.expm1(-claim_arrival_rate * horizon)
         scale /= probability_at_least_one_claim
-    contributions *= scale
-    density_flat = np.mean(contributions, axis=0)
+    stored_pathwise *= scale
+    density_flat = mean_contribution * scale
     if n_simulations > 1:
-        standard_error_flat = np.std(contributions, axis=0, ddof=1) / math.sqrt(n_simulations)
+        standard_error_flat = scale * np.sqrt(
+            np.maximum(centered_sum_squares, 0.0) / (n_simulations * (n_simulations - 1))
+        )
     else:
         standard_error_flat = np.zeros_like(density_flat)
     z = float(stats.norm.ppf(0.5 + ci_level / 2.0))
@@ -505,7 +542,6 @@ def estimate_finite_time_ruin_sensitivity_ibp(
     ci_high_flat = density_flat + z * standard_error_flat
 
     output_shape = surplus.shape
-    stored_pathwise = contributions if return_pathwise_density else np.empty((0, 0))
     return RuinSensitivityEstimate(
         surplus=surplus,
         infimum_points=(-surplus),

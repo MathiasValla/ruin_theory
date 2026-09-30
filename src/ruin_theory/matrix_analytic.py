@@ -6,6 +6,8 @@ from dataclasses import dataclass
 
 import numpy as np
 from numpy.typing import ArrayLike
+from scipy import sparse
+from scipy.sparse.linalg import expm_multiply
 
 from .distributions import ClaimDistribution, phase_type
 
@@ -75,12 +77,28 @@ def phase_type_renewal_count_pmf(
         raise ValueError("interarrival_distribution must be phase_type")
     t = _positive_float(horizon, "horizon")
     maximum = _nonnegative_int(max_count, "max_count")
-    cdfs = np.zeros(maximum + 2, dtype=float)
-    cdfs[0] = 1.0
-    for count in range(1, maximum + 2):
-        cdfs[count] = float(phase_type_convolution(interarrival_distribution, count).cdf(t))
-    probabilities = np.maximum(cdfs[: maximum + 1] - cdfs[1 : maximum + 2], 0.0)
-    tail = float(np.clip(cdfs[maximum + 1], 0.0, 1.0))
+    initial = np.asarray(interarrival_distribution.metadata["initial_probabilities"], dtype=float)
+    matrix = np.asarray(interarrival_distribution.metadata["subgenerator"], dtype=float)
+    exits = np.asarray(interarrival_distribution.metadata["exit_rates"], dtype=float)
+    phases = initial.size
+    blocks = maximum + 1
+    # Track (count, phase) directly; an absorbing state collects counts above the grid.
+    # This avoids subtracting convolution CDFs that may both round to one.
+    transitions = sparse.diags(np.ones(maximum), 1, shape=(blocks, blocks))
+    transient = sparse.kron(sparse.eye(blocks), matrix) + sparse.kron(
+        transitions, np.outer(exits, initial)
+    )
+    overflow = np.zeros((blocks * phases, 1))
+    overflow[-phases:, 0] = exits
+    generator = sparse.bmat(
+        [[transient, sparse.csr_matrix(overflow)], [None, sparse.csr_matrix((1, 1))]],
+        format="csr",
+    )
+    start = np.zeros(blocks * phases + 1)
+    start[:phases] = initial
+    state = expm_multiply(t * generator.T, start)
+    probabilities = np.maximum(state[:-1].reshape(blocks, phases).sum(axis=1), 0.0)
+    tail = float(np.clip(state[-1], 0.0, 1.0))
     total = float(probabilities.sum() + tail)
     if total > 0.0:
         probabilities = probabilities / total

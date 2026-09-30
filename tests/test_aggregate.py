@@ -137,3 +137,38 @@ def test_invalid_aggregate_and_panjer_arguments_are_rejected():
         AggregateDistribution(grid=[0, 1], pmf=[0.5, 0.5]).survival([0.0, np.nan])
     with pytest.raises(ValueError, match="TVaR requires"):
         AggregateDistribution(grid=[0, 1], pmf=[0.25, 0.25]).tail_value_at_risk(0.25)
+
+
+def test_full_aggregate_tvar_accepts_levels_arbitrarily_close_to_one():
+    law = AggregateDistribution([0.0, 1.0], [0.5, 0.5])
+    assert law.tail_value_at_risk(1 - 1e-12) == pytest.approx(1.0)
+
+
+def test_aggregate_survival_retains_small_representable_tail():
+    law = AggregateDistribution([0.0, 1.0], [1.0, 1e-20])
+    assert law.survival(0.0) == pytest.approx(1e-20, rel=1e-14, abs=0.0)
+
+
+@pytest.mark.parametrize("frequency, parameters, maximum", [
+    ("poisson", {"lambda": 1000}, 1200),
+    ("negative_binomial", {"r": 2000, "p": 0.5}, 2500),
+])
+def test_panjer_high_frequency_does_not_lose_entire_law(frequency, parameters, maximum):
+    from scipy import stats
+
+    law = panjer_recursion([0.0, 1.0], frequency, frequency_params=parameters,
+                           max_aggregate=maximum)
+    count = np.arange(maximum + 1)
+    expected = (stats.poisson.pmf(count, parameters["lambda"]) if frequency == "poisson"
+                else stats.nbinom.pmf(count, parameters["r"], parameters["p"]))
+    np.testing.assert_allclose(law.pmf, expected, rtol=2e-11, atol=1e-18)
+
+
+def test_binomial_compounding_avoids_cancellation_in_panjer_recurrence():
+    law = panjer_recursion([0.0, 0.5, 0.5], "binomial",
+                           frequency_params={"n": 100, "p": 0.9})
+    expected = np.array([1.0])
+    for _ in range(100):
+        expected = np.convolve(expected, [0.1, 0.45, 0.45])
+    np.testing.assert_allclose(law.pmf, expected, rtol=1e-11, atol=1e-18)
+    assert law.mean() == pytest.approx(135.0)

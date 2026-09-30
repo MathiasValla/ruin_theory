@@ -3,6 +3,7 @@ import pytest
 
 from ruin_theory import (
     CramerLundbergProcess,
+    LaguerreRuinExpansion,
     compound_geometric_moments_from_severity,
     exponential,
     fit_ultimate_ruin_polynomial_expansion,
@@ -59,3 +60,18 @@ def test_compound_geometric_moments_for_exponential_equilibrium():
     # Exponential claims have the same equilibrium law. For geometric N with
     # mean rho/(1-rho), E[M]=E[N]/5 and Var(M)=E[N]/25 + Var(N)/25.
     np.testing.assert_allclose(moments, [1.0, 0.3, 0.3])
+
+
+def test_review_laguerre_tail_integrals_match_direct_quadrature_at_high_order():
+    from scipy import integrate, special
+
+    expansion = LaguerreRuinExpansion(np.ones(41), xi=1.0, rho=0.5, order=40)
+    points = np.array([[0.01, 0.5], [2.0, 10.0]])
+    expected = np.array([
+        integrate.quad(
+            lambda x: np.exp(-x) * special.eval_laguerre(40, x),
+            z, np.inf, epsabs=1e-12,
+        )[0] for z in points.ravel()
+    ]).reshape(points.shape)
+    np.testing.assert_allclose(expansion.tail_integrals(points)[40], expected, atol=2e-12)
+    np.testing.assert_array_equal(expansion.tail_integrals(0.0)[1:], 0.0)

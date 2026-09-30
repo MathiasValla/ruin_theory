@@ -191,3 +191,27 @@ def test_barrier_dividend_validates_arguments():
             claim_rate=2.0,
             interest_force=0.2,
         )
+
+
+def test_dividend_path_records_when_payments_start_without_claims():
+    path = simulate_barrier_dividend_path(
+        deterministic(1.0), initial_capital=0.0, premium_rate=1.0,
+        claim_arrival_rate=0.0, barrier=1.0, horizon=3.0,
+    )
+    np.testing.assert_allclose(path.times, [0.0, 1.0, 3.0])
+    np.testing.assert_allclose(path.reserves, [0.0, 1.0, 1.0])
+    np.testing.assert_allclose(path.dividend_times, [0.0, 1.0, 3.0])
+    np.testing.assert_allclose(path.cumulative_dividends, [0.0, 0.0, 2.0])
+
+
+def test_small_interest_has_continuous_zero_interest_limit():
+    path = simulate_barrier_dividend_path(
+        deterministic(1.0), initial_capital=1.0, premium_rate=1.0,
+        claim_arrival_rate=0.0, barrier=10.0, horizon=3.0, interest_force=1e-20,
+    )
+    assert path.reserves[-1] == pytest.approx(4.0)
+    assert path.total_dividends == 0.0
+    value = barrier_dividend_payment_cdf(
+        0.5, claim_arrival_rate=1.0, dividend_rate=1.0, interest_force=1e-20,
+    )
+    assert value == pytest.approx(-np.expm1(-0.5))

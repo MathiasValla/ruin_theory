@@ -2,6 +2,7 @@
 
 import numpy as np
 import pytest
+from scipy import special
 
 from ruin_theory.climate_change import (
     InfiniteMeanPremiumModel,
@@ -147,3 +148,36 @@ def test_climate_change_argument_validation():
             n_simulations=1,
             max_events=0,
         )
+
+
+@pytest.mark.parametrize("factor", [0.01, 100.0])
+def test_shape_asymptotic_is_invariant_to_monetary_units(factor):
+    baseline = WorseningParetoModel(500.0, 1.0, 1.0, 1.5, 0.1, 1.0)
+    rescaled = WorseningParetoModel(500.0 * factor, 1.0, factor, 1.5, 0.1, 1.0)
+    assert klr_shape_asymptotic(rescaled) == pytest.approx(klr_shape_asymptotic(baseline))
+
+
+def test_shape_mean_does_not_subtract_nearly_equal_shapes():
+    model = WorseningParetoModel(500.0, 1.0, 2.0, 1.5, 0.1, 1.0)
+    time = 1e17
+    expected = model.initial_mean_claim * (1.0 + model.worsening_speed * time)
+    assert model.mean_claim_at(time) == pytest.approx(expected)
+    assert np.isfinite(model.premium_rate_at(time))
+
+
+@pytest.mark.parametrize("ceiling", [1.0, 4.0])
+def test_climate_table_handles_immediate_uninsurability(ceiling):
+    table = climate_change_ruin_table([0.1], premium_rate_max=ceiling, n_simulations=2)
+    np.testing.assert_array_equal(table.horizons, [0.0])
+    np.testing.assert_array_equal(table.shape_finite_ruin, [0.0])
+    np.testing.assert_array_equal(table.scale_finite_ruin, [0.0])
+
+
+def test_climate_pareto_integral_at_large_capital_matches_exact_beta_integral():
+    model = InfiniteMeanPremiumModel(1.2, 0.8, 2.0, 1.5, 1.6)
+    capital = 1e12
+    expected = (
+        1.2 * 2.0**0.8 * (capital + 2.0)**(1.0 / 1.6 - 0.8)
+        * 1.5**(-1.0 / 1.6) * special.beta(1.0 / 1.6, 0.8 - 1.0 / 1.6) / 1.6
+    )
+    assert infinite_mean_ruin_integral(model, capital) == pytest.approx(expected, rel=1e-7)

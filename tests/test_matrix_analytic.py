@@ -61,3 +61,22 @@ def test_phase_type_renewal_helpers_validate_arguments():
         phase_type_renewal_count_pmf(wait, 0.0, max_count=2)
     with pytest.raises(ValueError, match=r"\[0, 1\]"):
         sparre_andersen_phase_type_ruin_probability_by_count([0.0, 1.2], wait, 1.0)
+
+
+def test_phase_type_renewal_counts_retain_rare_poisson_probabilities():
+    from scipy.stats import poisson
+
+    law = phase_type_renewal_count_pmf(phase_type([1.0], [[-1.0]]), 100, max_count=5)
+    np.testing.assert_allclose(law.probabilities, poisson.pmf(np.arange(6), 100),
+                               rtol=1e-12, atol=0.0)
+
+
+def test_phase_type_renewal_counts_match_erlang_arrival_identity():
+    from scipy.stats import poisson
+
+    law = phase_type([1.0, 0.0], [[-2.0, 2.0], [0.0, -2.0]])
+    counts = phase_type_renewal_count_pmf(law, 5, max_count=12)
+    n = np.arange(13)
+    expected = poisson.pmf(2 * n, 10) + poisson.pmf(2 * n + 1, 10)
+    np.testing.assert_allclose(counts.probabilities, expected, rtol=1e-11, atol=1e-15)
+    assert counts.tail_probability == pytest.approx(poisson.sf(25, 10), rel=1e-10)

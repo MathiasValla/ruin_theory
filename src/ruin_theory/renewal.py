@@ -39,6 +39,8 @@ def _surplus_array(surplus: ArrayLike) -> np.ndarray:
     values = np.asarray(surplus, dtype=float)
     if np.any(np.isnan(values)):
         raise ValueError("surplus values must not contain NaN")
+    if np.any(~np.isfinite(values)):
+        raise ValueError("surplus values must be finite")
     if np.any(values < 0.0):
         raise ValueError("surplus values must be non-negative")
     return values
@@ -138,14 +140,23 @@ def discrete_pollaczek_khinchine_ultimate_ruin(
     The lattice convention is explicit: ``ladder_height_pmf[k]`` and the
     resulting aggregate PMF place mass at amount ``k * step``. For a surplus
     value ``u``, this returns ``P(M > u)`` by using
-    ``floor(u / step)`` as the CDF index.
+    ``floor(u / step)`` as the CDF index. Quotients within four floating-point
+    spacings of an integer are snapped to that integer, so decimal grid points
+    such as ``0.3 / 0.1`` do not fall into the preceding cell through roundoff.
     """
 
     step_value = _positive_step(step)
     rho_value = _rho_value(rho=rho, safety_loading=safety_loading)
     surplus_values = _surplus_array(surplus)
     flat = surplus_values.ravel()
-    indices = np.floor(flat / step_value).astype(int)
+    with np.errstate(over="ignore"):
+        quotients = flat / step_value
+    if np.any(~np.isfinite(quotients)) or np.any(quotients >= np.iinfo(np.intp).max):
+        raise ValueError("surplus / step exceeds the representable lattice index range")
+    nearest = np.rint(quotients)
+    snapped = np.where(abs(quotients - nearest) <= 4.0 * np.spacing(quotients),
+                       nearest, quotients)
+    indices = np.floor(snapped).astype(int)
     needed_index = int(indices.max()) if indices.size else 0
     severity = _severity_pmf(ladder_height_pmf)
     if max_aggregate is None:
@@ -169,7 +180,7 @@ def discrete_pollaczek_khinchine_ultimate_ruin(
         ladder_height_pmf=severity,
         rho=rho_value,
         step=step_value,
-        convention="mass[k] is at k*step; surplus uses floor(u/step); ruin=P(M>u)",
+        convention="mass[k] is at k*step; floor(u/step) with 4-ULP integer snapping; ruin=P(M>u)",
     )
 
 
@@ -214,22 +225,14 @@ def equilibrium_severity_pmf(
         raise ValueError("max_value must be a positive integer multiple of step")
     grid = step_value * np.arange(max_index + 1, dtype=float)
 
-    def cdf(points: np.ndarray) -> np.ndarray:
-        tail = integrated_tail_survival(distribution, points, scale=scale_value)
-        return np.clip(1.0 - np.asarray(tail, dtype=float), 0.0, 1.0)
-
+    tails = np.asarray(integrated_tail_survival(distribution, grid, scale=scale_value))
+    interval_masses = tails[:-1] - tails[1:]
     masses = np.zeros(max_index + 1, dtype=float)
     if method_value == "lower":
-        values = cdf(grid)
-        masses[0] = values[0]
-        if max_index > 0:
-            masses[1:] = values[1:] - values[:-1]
+        masses[1:] = interval_masses
     else:
-        right = cdf(grid[1:])
-        left = cdf(grid[:-1])
-        if max_index > 0:
-            masses[:-1] = right - left
-        masses[0] += cdf(np.asarray([0.0]))[0]
+        masses[:-1] = interval_masses
+    masses[0] += 1.0 - tails[0]
 
     masses = np.maximum(masses, 0.0)
     total = float(np.sum(masses))

@@ -6,10 +6,12 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from itertools import combinations
 import math
+import operator
 
 import numpy as np
 from numpy.typing import ArrayLike
 from scipy.integrate import quad
+from scipy.special import logsumexp
 
 
 @dataclass(frozen=True)
@@ -145,6 +147,8 @@ def _weighted_distribution(
     values: np.ndarray,
     weights: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray]:
+    positive = weights > 0.0
+    values, weights = values[positive], weights[positive]
     if values.size == 0:
         return np.empty(0, dtype=float), np.empty(0, dtype=float)
     unique, inverse = np.unique(values, return_inverse=True)
@@ -219,9 +223,12 @@ def claim_size_intensities_from_functions(
     """Integrate ``lambda(t) p_k(t)`` over inventory intervals for sizes ``k``."""
 
     times = _as_nonnegative_1d(inventory_times, "inventory_times")
-    if np.any(np.diff(times) < -1e-12):
+    if np.any(np.diff(times) < 0.0):
         raise ValueError("inventory_times must be non-decreasing")
-    max_size = int(max_claim_size)
+    try:
+        max_size = operator.index(max_claim_size)
+    except TypeError as exc:
+        raise TypeError("max_claim_size must be an integer") from exc
     if max_size < 0:
         raise ValueError("max_claim_size must be non-negative")
     absolute = _positive_float(epsabs, "epsabs")
@@ -236,14 +243,14 @@ def claim_size_intensities_from_functions(
 
         def probability(time: float, index: int) -> float:
             pmf = np.asarray(severity_pmf(time), dtype=float)
-            if pmf.ndim != 1 or pmf.size <= index:
-                return 0.0
+            if pmf.ndim != 1 or pmf.size == 0:
+                raise ValueError("severity_pmf must return a non-empty one-dimensional array")
             if np.any(~np.isfinite(pmf)) or np.any(pmf < 0.0):
                 raise ValueError("severity_pmf must return finite non-negative probabilities")
             total = float(pmf.sum())
             if total > 1.0 + 1e-10:
                 raise ValueError("severity_pmf must return probabilities summing to at most one")
-            return float(pmf[index])
+            return float(pmf[index]) if index < pmf.size else 0.0
 
     else:
         pmf = _as_nonnegative_1d(severity_pmf, "severity_pmf")
@@ -259,7 +266,7 @@ def claim_size_intensities_from_functions(
     for row, current in enumerate(times):
         start = previous
         end = float(current)
-        if math.isclose(start, end, rel_tol=0.0, abs_tol=1e-14):
+        if start == end:
             previous = end
             continue
         for size in range(max_size + 1):
@@ -400,7 +407,7 @@ def finite_time_dependent_discrete_time_ruin(
     cumulative = np.cumsum(premium_vector)
     boundaries = initial + cumulative
     partial_sums = np.cumsum(scenarios, axis=1)
-    ruined_by = partial_sums > boundaries[None, :]
+    ruined_by = np.logical_or.accumulate(partial_sums > boundaries[None, :], axis=1)
     first_ruin = np.full(scenarios.shape[0], -1, dtype=int)
     for index, row in enumerate(ruined_by):
         hits = np.flatnonzero(row)
@@ -534,7 +541,8 @@ def ruin_deficit_quantile(
         return math.nan
     order = np.argsort(values)
     cumulative = np.cumsum(masses[order])
-    return float(values[order[np.searchsorted(cumulative, q, side="left")]])
+    index = min(int(np.searchsorted(cumulative, q, side="left")), order.size - 1)
+    return float(values[order[index]])
 
 
 def period_lundberg_roots_from_pmf(
@@ -549,6 +557,8 @@ def period_lundberg_roots_from_pmf(
     """Solve ``E exp(r(X_t-c_t)) = 1`` for lattice period increments."""
 
     increments = _pmf_matrix(increment_pmfs, "increment_pmfs")
+    if not np.allclose(increments.sum(axis=1), 1.0, rtol=1e-10, atol=1e-12):
+        raise ValueError("increment_pmfs rows must sum to one for Lundberg roots")
     premium_vector = _premium_vector(premiums, increments.shape[0])
     step = _positive_float(grid_step, "grid_step")
     tolerance = _positive_float(tol, "tol")
@@ -561,9 +571,14 @@ def period_lundberg_roots_from_pmf(
         drift = float(np.dot(pmf, claim_values) - premium)
         if drift >= 0.0:
             continue
+        positive = pmf > 0.0
+        excesses = claim_values[positive] - premium
+        if excesses.size == 0 or np.max(excesses) <= 0.0:
+            continue
+        log_probabilities = np.log(pmf[positive])
 
         def objective(root: float) -> float:
-            return float(np.dot(pmf, np.exp(root * (claim_values - premium))) - 1.0)
+            return float(logsumexp(log_probabilities + root * excesses))
 
         high = 1.0 if upper is None else _positive_float(upper, "upper")
         while objective(high) <= 0.0 and high < 1e6:
@@ -588,13 +603,16 @@ def finite_time_lundberg_bounds(
     *,
     initial_capital: float,
 ) -> FiniteTimeLundbergBoundResult:
-    """Return Castaner-style finite-time bounds ``exp(-R(t) u)``."""
+    """Return finite-time bounds; missing/nonpositive roots give the bound one."""
 
-    roots = _as_1d_float(period_roots, "period_roots")
+    roots = np.asarray(period_roots, dtype=float)
+    if roots.ndim != 1 or roots.size == 0:
+        raise ValueError("period_roots must be a non-empty one-dimensional array")
+    roots = roots.copy()
     initial = _nonnegative_float(initial_capital, "initial_capital")
-    finite_roots = np.where(np.isfinite(roots) & (roots > 0.0), roots, np.inf)
+    finite_roots = np.where(np.isfinite(roots) & (roots > 0.0), roots, 0.0)
     adjustments = np.minimum.accumulate(finite_roots)
-    bounds = np.where(np.isfinite(adjustments), np.exp(-adjustments * initial), 1.0)
+    bounds = np.exp(-adjustments * initial)
     return FiniteTimeLundbergBoundResult(
         initial_capital=initial,
         period_roots=roots,

@@ -272,6 +272,8 @@ class ByClaimModel:
         raise ValueError(f"unknown count distribution {self.count_distribution!r}")
 
     def expected_amount_per_primary(self) -> float:
+        if self.probability == 0.0 or self.count_mean == 0.0:
+            return 0.0
         return self.probability * self.count_mean * self.distribution.mean()
 
 
@@ -332,19 +334,22 @@ class RiskProcess:
             raise NotImplementedError(
                 "expected_claim_amount is unavailable with a custom severity_transform"
             )
-        base = self.claim_distribution.mean() * self.prevention.severity_multiplier
+        scale = self.prevention.severity_multiplier
+        base = 0.0 if scale == 0.0 else self.claim_distribution.mean() * scale
         by_claims = sum(by_claim.expected_amount_per_primary() for by_claim in self.by_claims)
         return base + by_claims
 
     @property
     def claim_intensity(self) -> float:
-        return self.claim_arrival_rate * self.expected_claim_amount
+        rate = self.claim_arrival_rate
+        return 0.0 if rate == 0.0 else rate * self.expected_claim_amount
 
     @property
     def safety_loading(self) -> float:
-        if self.claim_intensity == 0:
+        intensity = self.claim_intensity
+        if intensity == 0:
             return np.inf
-        return self.premium_rate / self.claim_intensity - 1.0
+        return self.premium_rate / intensity - 1.0
 
 
 @dataclass(frozen=True)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal, localcontext
 import math
 import operator
 from typing import Callable
@@ -84,6 +85,9 @@ class OrderStatisticPointProcess:
         tail_tol: float = 1e-12,
     ) -> np.ndarray:
         horizon = _nonnegative_float(t, "t")
+        tolerance = _positive_float(tail_tol, "tail_tol")
+        if tolerance >= 1.0:
+            raise ValueError("tail_tol must lie in (0, 1)")
         if max_count is None:
             if self.finite_max_count is not None:
                 max_count = self.finite_max_count
@@ -91,13 +95,18 @@ class OrderStatisticPointProcess:
                 probabilities: list[float] = []
                 total = 0.0
                 mean = self.mean(horizon)
-                limit = max(32, int(math.ceil(mean + 12.0 * math.sqrt(mean + 1.0))))
+                # A Poisson-width cutoff is not valid for overdispersed count laws.
+                limit = max(100_000, int(math.ceil(mean + 12.0 * math.sqrt(mean + 1.0))))
                 for count in range(limit + 1):
                     probability = self.count_pmf(count, horizon)
                     probabilities.append(probability)
                     total += probability
-                    if count >= mean and 1.0 - total <= tail_tol:
+                    if total > 1.0 + 1e-10:
+                        raise ValueError("count probabilities sum to more than one")
+                    if count >= mean and 1.0 - total <= tolerance:
                         break
+                else:
+                    raise ValueError("count tail tolerance not reached; provide explicit max_count")
                 return np.asarray(probabilities, dtype=float)
         max_count = _nonnegative_int(max_count, "max_count")
         return np.array([self.count_pmf(count, horizon) for count in range(max_count + 1)], dtype=float)
@@ -168,9 +177,9 @@ def linear_birth_immigration_ospp(
 
     return OrderStatisticPointProcess(
         count_pmf_function=count_pmf,
-        conditional_cdf_function=lambda s, t: (math.exp(birth_rate * s) - 1.0)
-        / (math.exp(birth_rate * t) - 1.0),
-        mean_function=lambda t: shape * (math.exp(birth_rate * t) - 1.0),
+        conditional_cdf_function=lambda s, t: math.exp(-birth_rate * (t - s))
+        * math.expm1(-birth_rate * s) / math.expm1(-birth_rate * t),
+        mean_function=lambda t: shape * math.expm1(birth_rate * t),
         name="linear_birth_immigration_ospp",
     )
 
@@ -184,14 +193,14 @@ def linear_death_ospp(initial_size: int, death_rate: float) -> OrderStatisticPoi
     death_rate = _positive_float(death_rate, "death_rate")
 
     def count_pmf(n: int, t: float) -> float:
-        p = 1.0 - math.exp(-death_rate * t)
+        p = -math.expm1(-death_rate * t)
         return stats.binom.pmf(n, size, p)
 
     return OrderStatisticPointProcess(
         count_pmf_function=count_pmf,
-        conditional_cdf_function=lambda s, t: (1.0 - math.exp(-death_rate * s))
-        / (1.0 - math.exp(-death_rate * t)),
-        mean_function=lambda t: size * (1.0 - math.exp(-death_rate * t)),
+        conditional_cdf_function=lambda s, t: math.expm1(-death_rate * s)
+        / math.expm1(-death_rate * t),
+        mean_function=lambda t: -size * math.expm1(-death_rate * t),
         name="linear_death_ospp",
         finite_max_count=size,
     )
@@ -215,6 +224,22 @@ def uniform_order_stat_rect_probability(lower: ArrayLike, upper: ArrayLike) -> f
         return 0.0
     if np.any(np.diff(lower_values) < -1e-12) or np.any(np.diff(upper_values) < -1e-12):
         raise ValueError("lower and upper bounds must be non-decreasing")
+
+    if n >= 20:
+        # The same recurrence loses all useful digits through alternating
+        # binomial terms at high order. Preserve guard digits before clipping.
+        with localcontext() as context:
+            context.prec = n + 30
+            lower_decimal = [Decimal(float(value)) for value in lower_values]
+            upper_decimal = [Decimal(float(value)) for value in upper_values]
+            masses = [Decimal(1)]
+            for degree in range(1, n + 1):
+                total = Decimal(0)
+                for split in range(degree):
+                    width = max(upper_decimal[split] - lower_decimal[degree - 1], Decimal(0))
+                    total += math.comb(degree, split) * (-width) ** (degree - split) * masses[split]
+                masses.append(-total)
+            return float(np.clip(float(masses[n]), 0.0, 1.0))
 
     probabilities = np.zeros(n + 1, dtype=float)
     probabilities[0] = 1.0
@@ -507,18 +532,19 @@ def dual_poisson_exponential_ruin_time_density(
     v = process.initial_capital
     a = process.cost_rate
     values = np.zeros_like(times, dtype=float)
-    mask = times > process.earliest_ruin_time
+    mask = (times > process.earliest_ruin_time) & np.isfinite(times)
     if np.any(mask) and rate > 0.0:
         tm = times[mask]
         x = a * tm - v
-        z = 2.0 * np.sqrt(rate * tm * mu * x)
+        arrival_root = np.sqrt(rate * tm)
+        severity_root = np.sqrt(mu * x)
+        z = 2.0 * arrival_root * severity_root
         values[mask] = (
             v
             / tm
-            * np.exp(-(rate * tm + mu * x))
-            * 2.0
+            * np.exp(-(arrival_root - severity_root) ** 2)
             * np.sqrt(rate * tm * mu / x)
-            * special.iv(1, z)
+            * special.ive(1, z)
         )
     return values
 
@@ -541,7 +567,7 @@ def dual_poisson_exponential_ruin_time_cdf(
     for index, time in enumerate(flat):
         if time < atom_time:
             values[index] = 0.0
-        elif np.isclose(time, atom_time):
+        elif time == atom_time:
             values[index] = atom
         else:
             integral, _ = integrate.quad(

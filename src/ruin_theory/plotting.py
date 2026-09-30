@@ -25,7 +25,7 @@ from .finite_discrete_time import (
     FiniteTimeLundbergBoundResult,
     distribution_cdf,
 )
-from .dividends import BarrierDividendPath
+from .dividends import BarrierDividendPath, _growth, _time_to_barrier
 from .integer_byclaims import IntegerByClaimPath
 from .markov_modulated import DependenceImpactResult, MarkovModulatedRuinResult, solvency_region
 from .matrix_analytic import PhaseTypeRenewalCountResult
@@ -74,7 +74,8 @@ def _plot_reserve_path(
     reserves = _as_1d_float(path.reserves, "path.reserves")
     if times.shape != reserves.shape:
         raise ValueError("path.times and path.reserves must have matching shapes")
-    axis.step(times, reserves, where="post", color="#1f77b4", alpha=alpha, linewidth=linewidth)
+    # Repeated event times already encode vertical claim and injection jumps.
+    axis.plot(times, reserves, color="#1f77b4", alpha=alpha, linewidth=linewidth)
     return times
 
 
@@ -651,6 +652,16 @@ def _discrete_time_result(
     return result
 
 
+def _cdf_plot_points(
+    values: np.ndarray, probabilities: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    points = np.unique(values)
+    margin = 0.05 * max(float(points[-1] - points[0]), 1.0)
+    # Include the zero and unit tails so even a one-point law is visible.
+    points = np.r_[points[0] - margin, points, points[-1] + margin]
+    return points, distribution_cdf((values, probabilities), points)
+
+
 def plot_discrete_time_surplus_cdf(
     result: FiniteTimeDiscreteTimeRuinResult | FiniteTimeDependentRuinResult,
     *,
@@ -664,8 +675,7 @@ def plot_discrete_time_surplus_cdf(
     values, probabilities = checked.surplus_distributions[period]
     if values.size == 0:
         raise ValueError("surplus distribution is empty for this period")
-    points = np.sort(values)
-    cdf = distribution_cdf((values, probabilities), points)
+    points, cdf = _cdf_plot_points(values, probabilities)
     axis = _axis(ax)
     axis.step(points, cdf, where="post", color="#0b6e4f", linewidth=2.0, label=label)
     axis.set_xlabel("surplus")
@@ -690,8 +700,7 @@ def plot_discrete_time_deficit_cdf(
     values, probabilities = checked.deficit_distributions[period]
     if values.size == 0:
         raise ValueError("deficit distribution is empty for this period")
-    points = np.sort(values)
-    cdf = distribution_cdf((values, probabilities), points)
+    points, cdf = _cdf_plot_points(values, probabilities)
     axis = _axis(ax)
     axis.step(points, cdf, where="post", color="#8c1d2d", linewidth=2.0, label=label)
     axis.set_xlabel("deficit at ruin")
@@ -1145,28 +1154,81 @@ def plot_win_first_sensitivity(
     return axis
 
 
+def _barrier_reserve_plot_points(path: BarrierDividendPath) -> tuple[np.ndarray, np.ndarray]:
+    times = _as_1d_float(path.times, "path.times")
+    reserves = _as_1d_float(path.reserves, "path.reserves")
+    if times.shape != reserves.shape or np.any(np.diff(times) < 0.0):
+        raise ValueError("path times and reserves must match and times must be nondecreasing")
+    plot_times = [times[0]]
+    plot_reserves = [reserves[0]]
+    for index in range(1, times.size):
+        duration = times[index] - times[index - 1]
+        if duration > 0.0:
+            hit = _time_to_barrier(
+                reserves[index - 1], path.barrier, path.premium_rate, path.interest_force,
+            )
+            growth_duration = min(hit, duration)
+            # Sample nonlinear interest growth and retain exact barrier-hit knots.
+            offsets = (
+                list(np.linspace(0.0, growth_duration, 33)[1:-1])
+                if path.interest_force > 0.0 and growth_duration > 0.0 else []
+            )
+            if 0.0 < hit < duration:
+                offsets.append(hit)
+            for offset in offsets:
+                plot_times.append(times[index - 1] + offset)
+                plot_reserves.append(min(path.barrier, _growth(
+                    reserves[index - 1], offset, path.premium_rate, path.interest_force,
+                )))
+        plot_times.append(times[index])
+        plot_reserves.append(reserves[index])
+    return np.asarray(plot_times), np.asarray(plot_reserves)
+
+
+def _barrier_dividend_plot_points(path: BarrierDividendPath) -> tuple[np.ndarray, np.ndarray]:
+    times = _as_1d_float(path.dividend_times, "path.dividend_times")
+    cumulative = _as_1d_float(path.cumulative_dividends, "path.cumulative_dividends")
+    if (times.shape != cumulative.shape or np.any(np.diff(times) < 0.0)
+            or np.any(np.diff(cumulative) < 0.0)):
+        raise ValueError("dividend times and totals must match and be nondecreasing")
+    rate = path.premium_rate + path.interest_force * path.barrier
+    plot_times = [times[0]]
+    plot_values = [cumulative[0]]
+    for index in range(1, times.size):
+        increase = cumulative[index] - cumulative[index - 1]
+        if increase > 0.0:
+            # Each recorded increase ends one continuous payment spell at the barrier.
+            start = max(times[index - 1], times[index] - increase / rate)
+            plot_times.append(start)
+            plot_values.append(cumulative[index - 1])
+        plot_times.append(times[index])
+        plot_values.append(cumulative[index])
+    return np.asarray(plot_times), np.asarray(plot_values)
+
+
 def plot_barrier_dividend_path(
     path: BarrierDividendPath,
     *,
     ax: Axes | None = None,
     show_dividends: bool = True,
 ) -> Axes:
-    """Plot a reserve path controlled by a horizontal dividend barrier."""
+    """Plot reserve growth, claim jumps and continuous payments at the barrier."""
 
     if not isinstance(path, BarrierDividendPath):
         raise TypeError("path must be a BarrierDividendPath")
+    times, reserves = _barrier_reserve_plot_points(path)
     axis = _axis(ax)
-    axis.step(path.times, path.reserves, where="post", color="#1f77b4", linewidth=1.8)
+    axis.plot(times, reserves, color="#1f77b4", linewidth=1.8)
     axis.axhline(path.barrier, color="#0b6e4f", linewidth=1.2, linestyle="--", label="barrier")
     axis.axhline(0.0, color="#222222", linewidth=1.0, linestyle=":")
     if path.ruin_time is not None:
         axis.axvline(path.ruin_time, color="#b00020", linewidth=1.2, linestyle=":")
     if show_dividends:
+        dividend_times, dividends = _barrier_dividend_plot_points(path)
         twin = axis.twinx()
-        twin.step(
-            path.dividend_times,
-            path.cumulative_dividends,
-            where="post",
+        twin.plot(
+            dividend_times,
+            dividends,
             color="#9467bd",
             alpha=0.8,
             linewidth=1.4,
@@ -1358,11 +1420,14 @@ def plot_solvency_region_2d(
     if inventory != period or inventory <= 0:
         raise ValueError("period must be a positive integer")
     size = int(grid_size)
-    if size <= 1:
-        raise ValueError("grid_size must be greater than one")
+    if size != grid_size or size <= 1:
+        raise ValueError("grid_size must be an integer greater than one")
+    solvency_region(region, severity_limit=severity_limit)
 
     boundary = initial + inventory * premium
     upper = max(float(np.max(boundary) * 1.6), 1.0)
+    if region in {"total", "hybrid"}:
+        upper = max(upper, float(np.sum(boundary)) * 1.1)
     x = np.linspace(0.0, upper, size)
     y = np.linspace(0.0, upper, size)
     xx, yy = np.meshgrid(x, y)
@@ -1381,9 +1446,6 @@ def plot_solvency_region_2d(
             & (xx <= boundary[0] + limit[0])
             & (yy <= boundary[1] + limit[1])
         )
-    else:
-        solvency_region(region, severity_limit=severity_limit)
-        raise ValueError("region must be 'any_line', 'total' or 'hybrid'")
 
     axis = _axis(ax)
     axis.pcolormesh(x, y, mask.astype(float), shading="auto", cmap="Greens", alpha=0.45)
@@ -1441,8 +1503,9 @@ def plot_multirisk_ruin_state_distribution(
         raise ValueError("lines must contain two line indices")
     n_lines = result.expected_dividends.size
     first, second = (int(lines[0]), int(lines[1]))
-    if first < 0 or first >= n_lines or second < 0 or second >= n_lines:
-        raise ValueError("lines must be valid line indices")
+    if (first != lines[0] or second != lines[1] or first == second
+            or first < 0 or first >= n_lines or second < 0 or second >= n_lines):
+        raise ValueError("lines must be distinct valid line indices (integers)")
 
     axis = _axis(ax)
     if not result.ruin_state_probabilities:
@@ -1453,10 +1516,12 @@ def plot_multirisk_ruin_state_distribution(
 
     states = np.asarray(list(result.ruin_state_probabilities), dtype=float)
     probabilities = np.asarray(list(result.ruin_state_probabilities.values()), dtype=float)
+    projected, inverse = np.unique(states[:, [first, second]], axis=0, return_inverse=True)
+    probabilities = np.bincount(inverse, weights=probabilities)
     sizes = 80.0 + 520.0 * probabilities / np.max(probabilities)
     scatter = axis.scatter(
-        states[:, first],
-        states[:, second],
+        projected[:, 0],
+        projected[:, 1],
         s=sizes,
         c=probabilities,
         cmap="viridis",
@@ -1464,7 +1529,7 @@ def plot_multirisk_ruin_state_distribution(
         edgecolors="#222222",
         linewidths=0.4,
     )
-    plt.colorbar(scatter, ax=axis, label="probability")
+    axis.figure.colorbar(scatter, ax=axis, label="probability")
     axis.axvline(0.0, color="#222222", linewidth=1.0)
     axis.axhline(0.0, color="#222222", linewidth=1.0)
     axis.set_xlabel(f"surplus line {first + 1} at ruin")
@@ -1512,7 +1577,7 @@ def plot_multirisk_dividend_convergence(
     if values.shape != grid.shape:
         raise ValueError("convergence metric must match grid_steps")
     axis.plot(grid, values, marker="o", linewidth=2.0, color="#4c78a8")
-    axis.invert_xaxis()
+    axis.xaxis.set_inverted(True)
     axis.set_xlabel("grid step")
     axis.set_ylabel(ylabel)
     axis.set_title("CTMC discretization convergence")
@@ -1550,7 +1615,7 @@ def plot_worsening_pareto_path(
         ylabel = "reserve / (u + p(t))"
 
     axis = _axis(ax)
-    axis.step(times, values, where="post", color="#1f77b4", linewidth=1.8)
+    axis.plot(times, values, color="#1f77b4", linewidth=1.8)
     axis.axhline(0.0, color="#222222", linewidth=1.0)
     if show_ruin and path.ruin_time is not None:
         axis.axvline(float(path.ruin_time), color="#b00020", linestyle="--", linewidth=1.2)

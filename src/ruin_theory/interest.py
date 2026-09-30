@@ -37,9 +37,43 @@ def _maybe_scalar(values: np.ndarray, original: ArrayLike) -> float | np.ndarray
     return float(values) if np.asarray(original).ndim == 0 else values
 
 
-def _log_upper_gamma(shape: float, x: np.ndarray | float) -> np.ndarray:
-    with np.errstate(divide="ignore", invalid="ignore"):
-        return special.gammaln(shape) + np.log(special.gammaincc(shape, x))
+def _log_scaled_upper_gamma(shape: float, x: np.ndarray | float) -> np.ndarray:
+    """Log of exp(x) * x**(1-shape) * Gamma(shape, x)."""
+
+    points = np.asarray(x, dtype=float)
+    result = np.empty_like(points)
+    for index in np.ndindex(points.shape):
+        value = float(points[index])
+        if value < shape + 1.0:
+            result[index] = (
+                special.gammaln(shape) + np.log(special.gammaincc(shape, value))
+                + value + (1.0 - shape) * np.log(value)
+            )
+            continue
+        # Lentz's continued fraction evaluates the scaled tail without gammaincc underflow.
+        tiny = np.finfo(float).tiny / np.finfo(float).eps
+        b = value + 1.0 - shape
+        c = 1.0 / tiny
+        d = 1.0 / b
+        h = d
+        for iteration in range(1, 10001):
+            numerator = -iteration * (iteration - shape)
+            b += 2.0
+            d = numerator * d + b
+            if abs(d) < tiny:
+                d = tiny
+            c = b + numerator / c
+            if abs(c) < tiny:
+                c = tiny
+            d = 1.0 / d
+            change = c * d
+            h *= change
+            if abs(change - 1.0) <= 8.0 * np.finfo(float).eps:
+                break
+        else:
+            raise ValueError("scaled incomplete gamma continued fraction did not converge")
+        result[index] = np.log(value * h)
+    return result
 
 
 def _function_values(function: NonRuinFunction, points: np.ndarray, name: str) -> np.ndarray:
@@ -94,17 +128,14 @@ def ultimate_ruin_exponential_interest_force(
     shape = arrival / force
     boundary = premium * severity_rate / force
     x = boundary + severity_rate * surplus
-    log_upper = _log_upper_gamma(shape, x)
-    log_upper_zero = float(_log_upper_gamma(shape, boundary))
-    log_claim_term = (
-        np.log(arrival)
-        + (shape - 1.0) * np.log(force)
-        + log_upper
+    log_integral = (
+        -severity_rate * surplus
+        + (shape - 1.0) * np.log1p(force * surplus / premium)
+        + _log_scaled_upper_gamma(shape, x) - np.log(severity_rate)
     )
-    log_claim_term_zero = np.log(arrival) + (shape - 1.0) * np.log(force) + log_upper_zero
-    log_boundary_term = shape * (np.log(severity_rate) + np.log(premium)) - boundary
-    log_denominator = np.logaddexp(log_boundary_term, log_claim_term_zero)
-    ruin = np.exp(log_claim_term - log_denominator)
+    log_integral_zero = float(_log_scaled_upper_gamma(shape, boundary)) - np.log(severity_rate)
+    log_denominator = np.logaddexp(np.log(premium), np.log(arrival) + log_integral_zero)
+    ruin = np.exp(np.log(arrival) + log_integral - log_denominator)
     return _maybe_scalar(np.clip(ruin, 0.0, 1.0), initial_capital)
 
 

@@ -75,6 +75,10 @@ def _claim_distributions(
     return distributions
 
 
+def _expected_loss(count: float, distribution: ClaimDistribution) -> float:
+    return 0.0 if count == 0.0 else count * distribution.mean()
+
+
 @dataclass(frozen=True)
 class IntegerByClaimPath:
     """One simulated discrete reserve path with dependent by-claim counts."""
@@ -171,13 +175,15 @@ class INARByClaimModel:
 
     def expected_terminal_reserve(self, periods: int) -> float:
         period_count = _positive_int(periods, "periods")
-        primary_cost = period_count * self.primary_count_mean * self.primary_distribution.mean()
+        primary_cost = _expected_loss(
+            period_count * self.primary_count_mean, self.primary_distribution,
+        )
         previous = self.reproduction * self.initial_byclaim_mean + self.primary_count_mean
         byclaim_count_sum = 0.0
         for _ in range(period_count):
             byclaim_count_sum += previous
             previous = self.reproduction * previous + self.primary_count_mean
-        byclaim_cost = byclaim_count_sum * self.byclaim_distribution.mean()
+        byclaim_cost = _expected_loss(byclaim_count_sum, self.byclaim_distribution)
         return float(
             self.initial_capital
             + period_count * self.premium_per_period
@@ -257,18 +263,18 @@ class BINARByClaimModel:
     def expected_terminal_reserve(self, periods: int) -> float:
         period_count = _positive_int(periods, "periods")
         primary_means = np.asarray(self.primary_count_means, dtype=float)
-        primary_severities = np.array(
-            [distribution.mean() for distribution in self.primary_distributions],
+        primary_cost = sum(
+            _expected_loss(period_count * count, distribution)
+            for count, distribution in zip(primary_means, self.primary_distributions)
         )
-        byclaim_severities = np.array(
-            [distribution.mean() for distribution in self.byclaim_distributions],
-        )
-        primary_cost = period_count * float(np.dot(primary_means, primary_severities))
         matrix = self.reproduction_array()
         previous = matrix @ np.asarray(self.initial_byclaim_means, dtype=float) + primary_means
         byclaim_cost = 0.0
         for _ in range(period_count):
-            byclaim_cost += float(previous @ byclaim_severities)
+            byclaim_cost += sum(
+                _expected_loss(count, distribution)
+                for count, distribution in zip(previous, self.byclaim_distributions)
+            )
             previous = matrix @ previous + primary_means
         return float(
             self.initial_capital
@@ -300,7 +306,11 @@ def _compound_sums(
         return result
     if distribution.name in {"gamma", "erlang"}:
         shape = float(distribution.metadata["shape"])
-        scale = float(distribution.metadata.get("scale", 1.0 / distribution.metadata["rate"]))
+        scale = (
+            float(distribution.metadata["scale"])
+            if "scale" in distribution.metadata
+            else 1.0 / float(distribution.metadata["rate"])
+        )
         result[positive] = rng.gamma(shape=integer_counts[positive] * shape, scale=scale)
         return result
 

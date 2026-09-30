@@ -1,5 +1,6 @@
 import numpy as np
 import pytest
+from scipy import special, stats
 
 from ruin_theory import (
     CommonShock,
@@ -196,3 +197,28 @@ def test_markov_modulated_public_argument_validation():
             horizon=1,
             region=object(),  # type: ignore[arg-type]
         )
+
+
+def test_compound_poisson_large_mean_preserves_conditional_count_weights():
+    pmf, tail = compound_poisson_vector_pmf({(1,): 1.0}, mean=1000.0, max_count=32)
+    log_weights = stats.poisson.logpmf(np.arange(33), 1000.0)
+    expected = np.exp(log_weights - special.logsumexp(log_weights))
+    np.testing.assert_allclose([pmf.get((n,), 0.0) for n in range(33)], expected)
+    assert sum(pmf.values()) == pytest.approx(1.0)
+    assert tail == pytest.approx(1.0)
+
+
+def test_compound_poisson_reports_tail_below_machine_epsilon():
+    _, tail = compound_poisson_vector_pmf(
+        {(1,): 1.0}, mean=1e-10, max_count=1, tail_tolerance=1e-30,
+    )
+    assert tail == pytest.approx(stats.poisson.sf(1, 1e-10), rel=1e-12, abs=0.0)
+
+
+def test_environment_normalizes_accepted_probability_roundoff():
+    environment = MarkovEnvironment([1.0 - 1e-6], [[1.0 - 1e-6]])
+    result = finite_time_markov_modulated_ruin(
+        [{(0,): 1.0}], environment, initial_capitals=[1.0], premiums=[0.0], horizon=20,
+    )
+    np.testing.assert_allclose(result.survival_by_state[:, 0], 1.0, atol=1e-14, rtol=0)
+    np.testing.assert_allclose(result.ruin_probabilities, 0.0, atol=1e-14, rtol=0)

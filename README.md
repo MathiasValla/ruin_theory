@@ -49,6 +49,8 @@ of the public package or release artifacts.
   acknowledgments.
 - [Validation plan](docs/validation.md): small reproducible numerical targets
   and paper-specific validation notebooks.
+- [September 2026 code review](docs/code_review_2026_09.md): numerical corrections,
+  measured performance, verification results and remaining scientific limitations.
 - [Public release checklist](docs/public_release_checklist.md): PyPI, docs,
   coverage, Zenodo and private-resource checks before release.
 - [INAR/BINAR by-claim examples](examples/inar_binar_byclaim_examples.py):

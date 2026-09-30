@@ -8,7 +8,7 @@ import operator
 
 import numpy as np
 from numpy.typing import ArrayLike
-from scipy import integrate, linalg
+from scipy import integrate, linalg, special
 
 from .distributions import ClaimDistribution
 
@@ -64,16 +64,16 @@ def _raw_moment(distribution: ClaimDistribution, order: int) -> float:
     name = distribution.name
     if name == "exponential":
         rate = float(distribution.metadata["rate"])
-        return math.factorial(order) / rate**order
-    if name == "gamma":
+        with np.errstate(over="ignore"):
+            return float(np.exp(special.gammaln(order + 1) - order * math.log(rate)))
+    if name in {"gamma", "erlang"}:
         shape = float(distribution.metadata["shape"])
-        scale = float(distribution.metadata["scale"])
-        return scale**order * math.gamma(shape + order) / math.gamma(shape)
-    if name == "erlang":
-        shape = int(distribution.metadata["shape"])
-        rate = float(distribution.metadata["rate"])
-        scale = 1.0 / rate
-        return scale**order * math.gamma(shape + order) / math.gamma(shape)
+        scale = (float(distribution.metadata["scale"]) if name == "gamma"
+                 else 1.0 / float(distribution.metadata["rate"]))
+        # Integer moments use a rising product, without overflowing either Gamma factor.
+        log_moment = math.fsum(math.log(scale) + math.log(shape + j) for j in range(order))
+        with np.errstate(over="ignore"):
+            return float(np.exp(log_moment))
     if name == "mixture_exponential":
         rates = np.asarray(distribution.metadata["rates"], dtype=float)
         weights = np.asarray(distribution.metadata["weights"], dtype=float)
@@ -120,8 +120,9 @@ def limited_moment(
     """Return the limited moment ``E[min(X, limit)**order]``.
 
     This is the standard stop-loss/limited-expectation convention for
-    non-negative severities. The implementation uses exact empirical evaluation
-    when possible and otherwise the survival-integral identity
+    non-negative severities. The implementation uses exact discrete evaluation
+    and closed forms for exponential/Gamma/Erlang laws when possible, otherwise
+    the survival-integral identity
     ``E[min(X,d)^k] = integral_0^d k x^(k-1) S(x) dx``.
     """
 
@@ -136,6 +137,27 @@ def limited_moment(
         raise ValueError("limit must be non-negative")
     if order == 0:
         return np.ones_like(limits, dtype=float)
+    if distribution.name == "deterministic":
+        return np.minimum(limits, float(distribution.metadata["value"])) ** order
+    if distribution.name == "exponential":
+        moment = _raw_moment(distribution, order)
+        if np.isfinite(moment):
+            rate = float(distribution.metadata["rate"])
+            return moment * special.gammainc(order, rate * limits)
+    if distribution.name in {"gamma", "erlang"}:
+        moment = _raw_moment(distribution, order)
+        if np.isfinite(moment):
+            shape = float(distribution.metadata["shape"])
+            scale = (float(distribution.metadata["scale"]) if distribution.name == "gamma"
+                     else 1.0 / float(distribution.metadata["rate"]))
+            argument = limits / scale
+            tail = special.gammaincc(shape, argument)
+            capped_tail = np.zeros_like(limits)
+            positive = (limits > 0.0) & (tail > 0.0)
+            capped_tail[positive] = np.exp(
+                order * np.log(limits[positive]) + np.log(tail[positive]),
+            )
+            return moment * special.gammainc(shape + order, argument) + capped_tail
     if distribution.name == "empirical":
         return empirical_limited_moment(
             np.asarray(distribution.metadata["values"], dtype=float),
@@ -234,33 +256,27 @@ def coverage_transform(
     if limit is not None:
         limit = _positive_float(limit, "limit")
 
+    def payments_for(losses: np.ndarray) -> np.ndarray:
+        ground_up = inflation * losses
+        retained = (np.where(ground_up > deductible, ground_up, 0.0) if franchise
+                    else np.maximum(ground_up - deductible, 0.0))
+        if limit is not None:
+            retained = np.minimum(retained, limit)
+        return coinsurance * retained
+
     if not isinstance(distribution, ClaimDistribution):
         losses = _as_float_array(distribution, "losses")
         if np.any(~np.isfinite(losses)):
             raise ValueError("losses must contain only finite values")
         if np.any(losses < 0):
             raise ValueError("losses must be non-negative")
-        ground_up = inflation * losses
-        if franchise:
-            retained = np.where(ground_up > deductible, ground_up, 0.0)
-        else:
-            retained = np.maximum(ground_up - deductible, 0.0)
-        if limit is not None:
-            retained = np.minimum(retained, limit)
-        payments = coinsurance * retained
+        payments = payments_for(losses)
         return float(payments.item()) if payments.ndim == 0 else payments
 
     max_payment = np.inf if limit is None else coinsurance * limit
 
     def transformed_sample(rng: np.random.Generator, n: int) -> np.ndarray:
-        ground_up = inflation * distribution.sample(n, rng=rng)
-        if franchise:
-            retained = np.where(ground_up > deductible, ground_up, 0.0)
-        else:
-            retained = np.maximum(ground_up - deductible, 0.0)
-        if limit is not None:
-            retained = np.minimum(retained, limit)
-        return coinsurance * retained
+        return payments_for(distribution.sample(n, rng=rng))
 
     def survival(y: ArrayLike) -> np.ndarray:
         values = _as_float_array(y, "y")
@@ -295,9 +311,16 @@ def coverage_transform(
         value = integrate.quad(integrand, 0.0, upper, epsabs=1e-9)[0]
         return float(value)
 
-    mean = payment_moment(1)
-    second = payment_moment(2)
-    variance = max(second - mean**2, 0.0) if np.isfinite(second) else np.inf
+    if distribution.name in {"empirical", "deterministic"}:
+        support = (distribution.metadata["values"] if distribution.name == "empirical"
+                   else [distribution.metadata["value"]])
+        payments = payments_for(np.asarray(support, dtype=float))
+        mean = float(np.mean(payments))
+        variance = float(np.var(payments))
+    else:
+        mean = payment_moment(1)
+        second = payment_moment(2)
+        variance = max(second - mean**2, 0.0) if np.isfinite(second) else np.inf
     label = name or f"coverage_{distribution.name}"
     return ClaimDistribution(
         name=label,
@@ -386,7 +409,7 @@ def discretize(
 
     Available methods are ``upper`` (forward difference), ``lower`` (backward
     difference), ``rounding`` (midpoint), and ``unbiased`` (local first-moment
-    matching).
+    matching). On a grid starting at zero, every method retains any atom at zero.
     """
 
     if not isinstance(distribution, ClaimDistribution):
@@ -426,4 +449,6 @@ def discretize(
             ) / step
         pmf[-1] = (lev[-1] - lev[-2]) / step - 1.0 + float(cdf(support[-1]))
 
+    if grid[0] == 0.0 and method_key in {"upper", "unbiased"}:
+        pmf[0] += float(cdf(0.0))
     return DiscretizedDistribution(support=support, pmf=pmf, step=step, method=method_key)

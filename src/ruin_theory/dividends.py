@@ -122,7 +122,7 @@ def _horizon_value(horizon: float) -> float:
 def _growth(reserve: float, duration: float, premium: float, force: float) -> float:
     if force == 0.0:
         return reserve + premium * duration
-    return (reserve + premium / force) * math.exp(force * duration) - premium / force
+    return reserve * math.exp(force * duration) + premium * math.expm1(force * duration) / force
 
 
 def _time_to_barrier(reserve: float, barrier: float, premium: float, force: float) -> float:
@@ -130,7 +130,7 @@ def _time_to_barrier(reserve: float, barrier: float, premium: float, force: floa
         return 0.0
     if force == 0.0:
         return (barrier - reserve) / premium
-    return math.log((barrier + premium / force) / (reserve + premium / force)) / force
+    return math.log1p((barrier - reserve) * force / (premium + reserve * force)) / force
 
 
 def barrier_dividend_payment_mean(
@@ -175,9 +175,9 @@ def barrier_dividend_payment_cdf(
     if rate == 0.0:
         return _maybe_scalar(np.ones_like(values), x)
     if force == 0.0:
-        cdf = 1.0 - np.exp(-arrival * values / rate)
+        cdf = -np.expm1(-arrival * values / rate)
     else:
-        cdf = 1.0 - (1.0 + force * values / rate) ** (-arrival / force)
+        cdf = -np.expm1(-arrival * (np.log1p(force * values / rate) / force))
     return _maybe_scalar(np.clip(cdf, 0.0, 1.0), x)
 
 
@@ -463,6 +463,9 @@ def simulate_barrier_dividend_path(
             hit_time = _time_to_barrier(reserve, level, premium, force)
             if hit_time < remaining_horizon:
                 reserve = level
+                if hit_time > 0.0:
+                    append_state(t + hit_time, reserve)
+                    append_dividend(t + hit_time)
                 total_dividends += (premium + force * level) * (remaining_horizon - hit_time)
             else:
                 reserve = min(level, _growth(reserve, remaining_horizon, premium, force))
@@ -481,6 +484,7 @@ def simulate_barrier_dividend_path(
                 t += hit_time
                 reserve = level
                 append_state(t, reserve)
+                append_dividend(t)
             dividend_duration = interarrival - hit_time
             total_dividends += (premium + force * level) * dividend_duration
             t += dividend_duration

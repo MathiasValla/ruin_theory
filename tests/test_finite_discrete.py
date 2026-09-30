@@ -538,3 +538,65 @@ def test_finite_discrete_formulas_validate_inputs():
             time=-1.0,
             max_degree=2,
         )
+
+
+@pytest.mark.parametrize("nonhomogeneous", [False, True])
+def test_review_large_poisson_mean_does_not_erase_central_mass(nonhomogeneous):
+    from scipy.stats import poisson
+
+    if nonhomogeneous:
+        actual = nonhomogeneous_compound_poisson_lattice_pmf([0.0, 800.0], max_aggregate=900)
+    else:
+        actual = compound_poisson_lattice_pmf([0.0, 1.0], mean=800.0, max_aggregate=900)
+    np.testing.assert_allclose(actual[700:], poisson.pmf(np.arange(700, 901), 800.0), rtol=2e-11)
+
+
+def test_review_appell_base_avoids_cancelling_exponential_factors():
+    actual = compound_poisson_appell_base([0.0, 1.0], claim_arrival_rate=1.0, time=800.0, max_degree=2)
+    np.testing.assert_allclose(actual, [1.0, 800.0, 320000.0])
+    tiny_rate = compound_poisson_appell_base([0.0, 1.0], claim_arrival_rate=1e-18, time=1e18, max_degree=2)
+    np.testing.assert_allclose(tiny_rate, [1.0, 1.0, 0.5])
+
+
+@pytest.mark.parametrize("level", [0.0, 1.0, 2.0])
+@pytest.mark.parametrize("method", ["inventory", "nonhomogeneous", "appell"])
+def test_review_constant_integer_boundary_allows_zero_reserve(level, method):
+    from scipy.stats import poisson
+
+    kwargs = dict(boundary=lambda t: level, horizon=1.0, return_result=True)
+    if method == "nonhomogeneous":
+        result = finite_time_ruin_discrete_nonhomogeneous_boundary_function(lambda a, b: [0.0, b-a], **kwargs)
+    else:
+        function = finite_time_ruin_discrete_appell if method == "appell" else finite_time_ruin_discrete_boundary_function
+        result = function([0.0, 1.0], claim_arrival_rate=1.0, **kwargs)
+    assert result.ruin_probability == pytest.approx(poisson.sf(level, 1.0))
+
+
+@pytest.mark.parametrize("method", ["inventory", "nonhomogeneous", "appell"])
+def test_review_integer_plateau_respects_nonpositive_convention(method):
+    kwargs = dict(boundary=lambda t: 1.0 + max(t - 0.5, 0.0), horizon=1.0, convention="nonpositive")
+    if method == "nonhomogeneous":
+        actual = finite_time_ruin_discrete_nonhomogeneous_boundary_function(lambda a, b: [0.0, b-a], **kwargs)
+    else:
+        function = finite_time_ruin_discrete_appell if method == "appell" else finite_time_ruin_discrete_boundary_function
+        actual = function([0.0, 1.0], claim_arrival_rate=1.0, **kwargs)
+    assert actual == pytest.approx(1.0 - 1.5 * math.exp(-1.0), abs=1e-9)
+
+
+def test_review_inventory_retains_short_interval_at_high_rate():
+    actual = finite_time_ruin_discrete_inventory(
+        [0.0, 1.0], inventory_times=[1e-16], retained_counts=[1], claim_arrival_rate=1e16,
+    )
+    assert actual == pytest.approx(1.0 - math.exp(-1.0))
+
+
+@pytest.mark.parametrize("function", [finite_time_ruin_discrete_appell, finite_time_ruin_discrete_boundary_function])
+@pytest.mark.parametrize("convention", ["negative", "nonpositive"])
+def test_review_terminal_integer_plateau(function, convention):
+    actual = function(
+        [0.0, 1.0], boundary=lambda t: min(0.5 + t, 1.0), horizon=1.0,
+        claim_arrival_rate=1.0, convention=convention,
+    )
+    # Before t=.5 no claim can occur. Under negative ruin one claim is safe thereafter.
+    target = 1 - 1.5*math.exp(-1) if convention == "negative" else 1 - math.exp(-1)
+    assert actual == pytest.approx(target, abs=1e-9)

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from math import exp
+from math import ceil, exp, log, log2
 import operator
 from typing import Any, Mapping
 
@@ -139,11 +139,13 @@ class AggregateDistribution:
         return _scalar_or_array(result.reshape(values.shape), scalar)
 
     def survival(self, x: ArrayLike) -> float | np.ndarray:
-        values = np.asarray(self.cdf(x), dtype=float)
-        result = 1.0 - values
-        if np.asarray(x).ndim == 0:
-            return float(result)
-        return result
+        values = np.asarray(x, dtype=float)
+        if np.any(np.isnan(values)):
+            raise ValueError("x must not contain NaN")
+        indices = np.searchsorted(self.grid, values, side="right")
+        tails = np.r_[np.cumsum(self.pmf[::-1])[::-1], 0.0]
+        result = tails[indices] + max(0.0, 1.0 - self.total_mass)
+        return _scalar_or_array(np.clip(result, 0.0, 1.0), values.ndim == 0)
 
     def ppf(self, q: ArrayLike) -> float | np.ndarray:
         probabilities = np.asarray(q, dtype=float)
@@ -178,7 +180,7 @@ class AggregateDistribution:
                 "TVaR requires the computed pmf to sum to 1; pass "
                 "allow_truncated=True for a finite-grid approximation"
             )
-        if alpha >= self.total_mass - _PMF_ATOL:
+        if alpha >= self.total_mass:
             raise ValueError(
                 "level must be below the computed aggregate mass; increase max_aggregate "
                 "for truncated distributions"
@@ -342,6 +344,35 @@ def _severity_grid(
     return masses, grid, step
 
 
+def _convolution_power(masses: np.ndarray, count: int, max_index: int) -> np.ndarray:
+    result = np.array([1.0])
+    factor = masses[: max_index + 1]
+    while count:
+        if count % 2:
+            result = np.convolve(result, factor)[: max_index + 1]
+        count //= 2
+        if count:
+            factor = np.convolve(factor, factor)[: max_index + 1]
+    return np.pad(result, (0, max_index + 1 - result.size))
+
+
+def _panjer_pmf(masses: np.ndarray, freq: _PanjerFrequency, max_index: int) -> np.ndarray:
+    aggregate = np.zeros(max_index + 1, dtype=float)
+    denominator = 1.0 - freq.a * masses[0]
+    if denominator <= 0.0 or not np.isfinite(denominator):
+        raise ValueError("invalid Panjer denominator; check frequency and severity p0")
+    aggregate[0] = float(freq.pgf(float(masses[0])))
+    for k in range(1, max_index + 1):
+        upper = min(k, masses.size - 1)
+        if upper == 0:
+            continue
+        indices = np.arange(1, upper + 1)
+        weights = freq.a + freq.b * indices / k
+        aggregate[k] = float(np.dot(weights * masses[1 : upper + 1], aggregate[k - indices]))
+        aggregate[k] /= denominator
+    return aggregate
+
+
 def panjer_recursion(
     severity_pmf: ArrayLike,
     frequency: str | Mapping[str, Any],
@@ -358,6 +389,9 @@ def panjer_recursion(
     ``severity_pmf[j]`` is the probability of a claim amount ``j * grid_step``
     unless an explicit equally spaced ``support`` starting at zero is supplied.
     Unbounded frequencies are returned on the finite grid ``0:max_aggregate``.
+    Binomial compounding uses convolution to avoid a cancellation-prone Panjer
+    recurrence. Large Poisson/negative-binomial intensities are split into iid
+    components and convolved to prevent underflow of the recursion's seed.
     """
 
     masses, _, step = _severity_grid(
@@ -376,22 +410,30 @@ def panjer_recursion(
     else:
         max_index = _nonnegative_integer(max_aggregate, "max_aggregate")
 
-    aggregate = np.zeros(max_index + 1, dtype=float)
-    f0 = float(masses[0])
-    denominator = 1.0 - freq.a * f0
-    if denominator <= 0.0 or not np.isfinite(denominator):
-        raise ValueError("invalid Panjer denominator; check frequency and severity p0")
-    aggregate[0] = float(freq.pgf(f0))
-
-    for k in range(1, max_index + 1):
-        upper = min(k, severity_max_index)
-        if upper == 0:
-            continue
-        j = np.arange(1, upper + 1, dtype=float)
-        weights = freq.a + freq.b * j / k
-        previous = aggregate[k - np.arange(1, upper + 1)]
-        aggregate[k] = float(np.dot(weights * masses[1 : upper + 1], previous))
-        aggregate[k] /= denominator
+    if freq.model == "binomial":
+        p = float(freq.parameters["p"])
+        trial = p * masses
+        trial[0] += 1.0 - p
+        aggregate = _convolution_power(trial, int(freq.parameters["n"]), max_index)
+    else:
+        log_seed = 0.0
+        if freq.model == "poisson":
+            log_seed = float(freq.parameters["lambda"]) * (masses[0] - 1.0)
+        elif freq.model == "negative_binomial":
+            p = float(freq.parameters["p"])
+            log_seed = float(freq.parameters["r"]) * (
+                log(p) - log(1.0 - (1.0 - p) * masses[0])
+            )
+        if log_seed < -128.0:
+            count = 2 ** ceil(log2(-log_seed / 128.0))
+            parameters = freq.parameters.copy()
+            parameter = "lambda" if freq.model == "poisson" else "r"
+            parameters[parameter] /= count
+            component = _panjer_frequency(freq.model, parameters)
+            aggregate = _convolution_power(_panjer_pmf(masses, component, max_index),
+                                           count, max_index)
+        else:
+            aggregate = _panjer_pmf(masses, freq, max_index)
 
     aggregate = np.maximum(aggregate, 0.0)
     grid = np.arange(max_index + 1, dtype=float) * step

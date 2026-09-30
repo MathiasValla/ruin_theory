@@ -211,3 +211,40 @@ def test_by_claim_rejects_unknown_count_distribution():
             distribution=deterministic(5.0),
             count_distribution="binomial",
         )
+
+
+def test_distribution_factories_do_not_retain_mutable_input_arrays():
+    observations = np.array([1.0, 2.0])
+    rates = np.array([1.0, 2.0])
+    sample_law = empirical(observations)
+    mixture = mixture_exponential(rates)
+    observations[:] = 10.0
+    rates[:] = 10.0
+    assert sample_law.laplace(1.0) == pytest.approx((np.exp(-1) + np.exp(-2)) / 2)
+    assert mixture.laplace(1.0) == pytest.approx((1 / 2 + 2 / 3) / 2)
+
+
+def test_zero_weight_mixture_component_does_not_restrict_mgf_domain():
+    law = mixture_exponential([1.0, 3.0], [0.0, 1.0])
+    assert law.mgf(1.0) == pytest.approx(1.5)
+    assert law.mgf(2.0) == pytest.approx(3.0)
+
+
+@pytest.mark.parametrize("factory", [
+    lambda: deterministic(1.0),
+    lambda: empirical([0.0, 1.0]),
+    lambda: phase_type([1.0], [[-1.0]]),
+    lambda: matrix_exponential([1.0], [[-1.0]]),
+])
+def test_distribution_queries_reject_nan(factory):
+    law = factory()
+    for query in (law.cdf, law.survival):
+        with pytest.raises(ValueError, match="NaN"):
+            query([0.0, np.nan])
+
+
+@pytest.mark.parametrize("factory", [phase_type, matrix_exponential])
+def test_matrix_distribution_stability_is_not_a_fixed_rate_cutoff(factory):
+    law = factory([1.0], [[-1e-13]])
+    assert law.mean() == pytest.approx(1e13)
+    assert law.survival(1e13) == pytest.approx(np.exp(-1.0))

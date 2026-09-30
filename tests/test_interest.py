@@ -118,3 +118,19 @@ def test_interest_force_validates_arguments():
         win_first_probability_from_non_ruin(1.0, 1.0, lambda x: 1.0 / (1.0 + x))
     with pytest.raises(TypeError, match="callable"):
         maximum_before_default_survival(1.0, 3.0)
+
+
+@pytest.mark.parametrize("force", [1e-3, 1e-5, 1e-8])
+def test_small_interest_force_does_not_underflow_incomplete_gamma(force):
+    premium, arrival, rate = 1.2, 0.7, 1.4
+
+    def integrand(z):
+        return np.exp(-rate * z + (arrival / force - 1) * np.log1p(force * z / premium))
+
+    denominator = premium + arrival * integrate.quad(integrand, 0, np.inf, epsabs=1e-13)[0]
+    expected = arrival * integrate.quad(integrand, 2, np.inf, epsabs=1e-13)[0] / denominator
+    actual = ultimate_ruin_exponential_interest_force(
+        2, premium_rate=premium, claim_arrival_rate=arrival, claim_rate=rate,
+        interest_force=force,
+    )
+    assert actual == pytest.approx(expected, rel=1e-10)

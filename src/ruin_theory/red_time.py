@@ -213,7 +213,11 @@ def red_time_metrics_from_path(
     *,
     reserve_shift: float = 0.0,
 ) -> RedTimePathMetrics:
-    """Compute exact red-time metrics for a piecewise-linear simulated path."""
+    """Compute metrics up to the observed end of a piecewise-linear path.
+
+    For a path stopped at ruin, this does not extrapolate to its requested
+    simulation horizon. Simulate with ``stop_at_ruin=False`` to observe recovery.
+    """
 
     if not isinstance(path, SimulationPath):
         raise TypeError("path must be a SimulationPath")
@@ -222,15 +226,19 @@ def red_time_metrics_from_path(
     reserves = np.asarray(path.reserves, dtype=float) + shift
     if times.ndim != 1 or reserves.ndim != 1 or times.shape != reserves.shape:
         raise ValueError("path times and reserves must be one-dimensional arrays with same shape")
+    if times.size == 0:
+        raise ValueError("path must contain at least one observation")
+    if np.any(~np.isfinite(times)) or np.any(~np.isfinite(reserves)):
+        raise ValueError("path times and reserves must be finite")
+    if times[0] != 0.0:
+        raise ValueError("path times must start at zero")
     if times.size < 2:
         return RedTimePathMetrics(
             time_in_red=0.0,
             negative_area=0.0,
             minimum_reserve=float(np.min(reserves)),
-            horizon=float(path.horizon),
+            horizon=float(times[-1]),
         )
-    if np.any(~np.isfinite(times)) or np.any(~np.isfinite(reserves)):
-        raise ValueError("path times and reserves must be finite")
     durations = np.diff(times)
     if np.any(durations < 0.0):
         raise ValueError("path times must be non-decreasing")
@@ -240,16 +248,16 @@ def red_time_metrics_from_path(
         time_in_red=float(np.sum(red_time)),
         negative_area=float(np.sum(negative_area)),
         minimum_reserve=float(np.min(reserves)),
-        horizon=float(path.horizon),
+        horizon=float(times[-1]),
     )
 
 
-def _path_value_at(path: SimulationPath, time: float) -> float:
+def _path_value_at(path: SimulationPath, time: float, *, side: str = "right") -> float:
     times = np.asarray(path.times, dtype=float)
     reserves = np.asarray(path.reserves, dtype=float)
     if time < times[0]:
         return float(reserves[0])
-    index = int(np.searchsorted(times, time, side="right") - 1)
+    index = int(np.searchsorted(times, time, side=side) - 1)
     index = max(0, min(index, times.size - 1))
     if index >= times.size - 1:
         return float(reserves[-1])
@@ -270,14 +278,15 @@ def _linear_zero(start: float, end: float, left: float, right: float) -> float |
 def multiline_red_time_metrics_from_paths(
     paths: list[SimulationPath] | tuple[SimulationPath, ...],
 ) -> MultilineRedTimeMetrics:
-    """Compute multirisk red-time measures from synchronized reserve paths."""
+    """Compute multirisk red-time measures over the common observed horizon."""
 
     path_list = tuple(paths)
     if not path_list:
         raise ValueError("paths must contain at least one SimulationPath")
     if not all(isinstance(path, SimulationPath) for path in path_list):
         raise TypeError("paths must contain SimulationPath instances")
-    horizon = min(float(path.horizon) for path in path_list)
+    individual = [red_time_metrics_from_path(path) for path in path_list]
+    horizon = min(item.horizon for item in individual)
     if not np.isfinite(horizon) or horizon <= 0.0:
         raise ValueError("paths must have positive finite horizons")
 
@@ -287,6 +296,7 @@ def multiline_red_time_metrics_from_paths(
         base_times.update(float(time) for time in times if 0.0 <= time <= horizon)
     ordered = np.array(sorted(base_times), dtype=float)
     red_time = np.zeros(len(path_list), dtype=float)
+    negative_area = np.zeros(len(path_list), dtype=float)
     positive_total_red = np.zeros(len(path_list), dtype=float)
 
     for start, end in zip(ordered[:-1], ordered[1:]):
@@ -294,7 +304,12 @@ def multiline_red_time_metrics_from_paths(
         if duration <= 0.0:
             continue
         left = np.array([_path_value_at(path, float(start)) for path in path_list])
-        right = np.array([_path_value_at(path, float(end)) for path in path_list])
+        right = np.array([_path_value_at(path, float(end), side="left") for path in path_list])
+        segment_red, segment_area = _segment_metrics(
+            left, right, np.full(len(path_list), duration),
+        )
+        red_time += segment_red
+        negative_area += segment_area
         cuts = [float(start), float(end)]
         for line_start, line_end in zip(left, right):
             zero = _linear_zero(float(start), float(end), float(line_start), float(line_end))
@@ -314,13 +329,10 @@ def multiline_red_time_metrics_from_paths(
             if sub_duration <= 0.0:
                 continue
             midpoint = 0.5 * (sub_start + sub_end)
-            values = np.array([_path_value_at(path, midpoint) for path in path_list])
-            red_time += sub_duration * (values < 0.0)
+            values = left + (midpoint - start) / duration * (right - left)
             if float(np.sum(values)) > 0.0:
                 positive_total_red += sub_duration * (values < 0.0)
 
-    individual = [red_time_metrics_from_path(path) for path in path_list]
-    negative_area = np.array([item.negative_area for item in individual])
     return MultilineRedTimeMetrics(
         time_in_red=red_time,
         negative_area=negative_area,

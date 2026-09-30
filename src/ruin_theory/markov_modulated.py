@@ -9,7 +9,7 @@ from typing import Literal
 
 import numpy as np
 from numpy.typing import ArrayLike
-from scipy import linalg
+from scipy import linalg, special, stats
 
 
 Vector = tuple[int, ...]
@@ -40,8 +40,10 @@ class MarkovEnvironment:
             raise ValueError("initial_distribution must sum to one")
         if not np.allclose(np.sum(transition, axis=1), 1.0):
             raise ValueError("transition_matrix rows must sum to one")
-        object.__setattr__(self, "initial_distribution", initial)
-        object.__setattr__(self, "transition_matrix", transition)
+        object.__setattr__(self, "initial_distribution", initial / np.sum(initial))
+        object.__setattr__(
+            self, "transition_matrix", transition / np.sum(transition, axis=1, keepdims=True),
+        )
 
     @property
     def n_states(self) -> int:
@@ -293,7 +295,11 @@ def compound_poisson_vector_pmf(
     max_count: int = 32,
     tail_tolerance: float = 1e-12,
 ) -> tuple[VectorPmf, float]:
-    """Compound-Poisson lattice PMF truncated by the number of events."""
+    """Compound-Poisson PMF conditional on the retained event counts.
+
+    The second return value is the omitted Poisson probability, including when
+    ``max_count`` is too small to meet ``tail_tolerance``.
+    """
 
     event = _clean_vector_pmf(event_pmf, name="event_pmf")
     intensity = _nonnegative_float(mean, "mean")
@@ -303,19 +309,20 @@ def compound_poisson_vector_pmf(
     if intensity == 0.0:
         return {zero: 1.0}, 0.0
 
-    result: VectorPmf = {zero: math.exp(-intensity)}
+    counts = np.arange(maximum + 1)
+    tails = stats.poisson.sf(counts, intensity)
+    sufficient = np.flatnonzero(tails[1:] <= tolerance)
+    cutoff = int(sufficient[0] + 1) if sufficient.size else maximum
+    # Normalize in log space: exp(-mean) can underflow before the recurrence starts.
+    log_weights = stats.poisson.logpmf(counts[: cutoff + 1], intensity)
+    weights = np.exp(log_weights - special.logsumexp(log_weights))
+    result: VectorPmf = {zero: float(weights[0])}
     power: VectorPmf = {zero: 1.0}
-    weight = math.exp(-intensity)
-    cumulative_weight = weight
-    for count in range(1, maximum + 1):
+    for count in range(1, cutoff + 1):
         power = _convolve_clean_vector_pmfs(power, event, normalize=False)
-        weight *= intensity / count
-        cumulative_weight += weight
         for vector, probability in power.items():
-            result[vector] = result.get(vector, 0.0) + weight * probability
-        if 1.0 - cumulative_weight <= tolerance:
-            break
-    return _normalize_pmf(result), max(0.0, 1.0 - cumulative_weight)
+            result[vector] = result.get(vector, 0.0) + float(weights[count]) * probability
+    return _normalize_pmf(result), float(tails[cutoff])
 
 
 def common_shock_increment_pmfs(

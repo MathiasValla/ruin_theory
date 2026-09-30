@@ -95,7 +95,11 @@ class PolynomialPremiumGrowth:
 
 @dataclass(frozen=True)
 class InfiniteMeanRuinModel:
-    """Infinite-mean risk process with Poisson arrivals and increasing premiums."""
+    """Infinite-mean risk process with Poisson arrivals and increasing premiums.
+
+    For a custom tail with index one, infinite mean is an additional assumption
+    on its slowly varying factor, not a consequence of the index alone.
+    """
 
     claim_arrival_rate: float
     tail: RegularlyVaryingTail
@@ -106,6 +110,8 @@ class InfiniteMeanRuinModel:
         _positive_float(self.claim_arrival_rate, "claim_arrival_rate")
         if self.tail.tail_index > 1.0:
             raise ValueError("tail.tail_index must be less than or equal to one")
+        if self.tail.mean_value is not None:
+            raise ValueError("tail must have infinite mean, not a finite mean_value")
         condition = premium_power_condition(self.tail.tail_index, self.premium.power)
         if not condition.holds:
             warnings.warn(
@@ -243,12 +249,15 @@ def finite_mean_equilibrium_tail(
         flat = reserve.ravel()
         tail_integral = np.empty_like(flat, dtype=float)
 
-        def integrand(amount: float) -> float:
-            return float(tail.survival(amount))
-
         for index, capital in enumerate(flat):
-            value, _ = integrate.quad(integrand, float(capital), math.inf, epsabs=epsabs, limit=200)
-            tail_integral[index] = value
+            scale = max(float(capital), tail.scale)
+            base = _positive_float(tail.survival(capital), "tail survival at initial_capital")
+
+            def integrand(offset: float) -> float:
+                return float(tail.survival(capital + scale * offset)) / base
+
+            value, _ = integrate.quad(integrand, 0.0, math.inf, epsabs=epsabs, limit=200)
+            tail_integral[index] = scale * base * value
         tail_integral = tail_integral.reshape(reserve.shape)
     return np.clip(tail_integral / mean_value, 0.0, 1.0)
 
@@ -344,15 +353,25 @@ def infinite_mean_one_big_jump_integral(
     *,
     epsabs: float = 1e-10,
 ) -> float:
-    """Compute `lambda * int_0^inf Fbar(u + p(t)) dt` numerically."""
+    """Compute `lambda * int_0^inf Fbar(u + p(t)) dt` numerically.
+
+    Requires the supported sufficient condition ``premium.power > 1 / alpha``.
+    The boundary case depends on the slowly varying factor and is not handled.
+    """
 
     u = _positive_float(initial_capital, "initial_capital")
+    if not premium_power_condition(model.tail_index, model.premium_power).holds:
+        raise ValueError("premium.power must be greater than 1 / tail_index")
+    capital_scale = max(u, model.tail.scale)
+    time_scale = _positive_float(model.premium_inverse(capital_scale), "premium inverse")
+    base = _positive_float(model.survival(u), "tail survival at initial_capital")
 
     def integrand(time: float) -> float:
-        return float(model.survival(u + model.cumulative_premium(time)))
+        return float(model.survival(u + capital_scale * time**model.premium_power)) / base
 
+    # Resolve the premium-growth time scale before applying infinite-interval quadrature.
     value, _ = integrate.quad(integrand, 0.0, math.inf, epsabs=epsabs, limit=200)
-    return model.claim_arrival_rate * value
+    return model.claim_arrival_rate * time_scale * base * value
 
 
 def infinite_mean_one_big_jump_asymptotic(

@@ -76,6 +76,8 @@ from ruin_theory import (
     PremiumBoundary,
     INARByClaimModel,
     MarkovEnvironment,
+    MultiriskDividendCTMCResult,
+    MultiriskDividendConvergenceResult,
     RedTimeCurveResult,
     RegularlyVaryingTail,
     WorseningParetoModel,
@@ -112,6 +114,7 @@ from ruin_theory import (
     simulate_inar_byclaim_path,
     simulate_worsening_pareto_path,
     simplex_reserve_grid,
+    solvency_region,
 )
 from ruin_theory.prevention import optimize_periodic_prevention_calendar
 from ruin_theory.results import RuinEstimate, RuinSensitivityEstimate, SimulationPath
@@ -186,6 +189,9 @@ def test_plot_path_marks_reserve_and_ruin_time():
         assert ax.get_title() == "Reserve trajectory"
         assert ax.get_xlim() == pytest.approx((0.0, 3.0))
         assert len(ax.lines) == 3
+        np.testing.assert_allclose(ax.lines[0].get_path().vertices, np.column_stack(
+            (_path().times, _path().reserves),
+        ))
     finally:
         plt.close(fig)
 
@@ -202,6 +208,7 @@ def test_plot_paths_overlays_paths_and_rejects_empty_input():
         assert ax.get_title() == "Simulated reserve trajectories"
         assert ax.get_xlim() == pytest.approx((0.0, 4.0))
         assert len(ax.lines) == 3
+        assert all(line.get_drawstyle() == "default" for line in ax.lines[:2])
     finally:
         plt.close(fig)
 
@@ -1035,5 +1042,142 @@ def test_plot_integer_byclaim_path_and_counts():
         assert len(ax.patches) == 0
         assert [text.get_text() for text in ax.texts] == ["no ruin observed"]
         assert list(ax.get_yticks()) == []
+    finally:
+        plt.close(fig)
+
+
+@pytest.mark.parametrize("interest_force", [0.0, 0.2])
+def test_barrier_path_shows_growth_then_continuous_dividends(interest_force):
+    path = simulate_barrier_dividend_path(
+        deterministic(1.0), initial_capital=1.0, premium_rate=1.0,
+        claim_arrival_rate=0.0, barrier=2.0, interest_force=interest_force, horizon=3.0,
+    )
+    hit = (1.0 if interest_force == 0.0 else
+           np.log((2.0 + 1.0 / interest_force) / (1.0 + 1.0 / interest_force))
+           / interest_force)
+    fig, ax = plt.subplots()
+    try:
+        plot_barrier_dividend_path(path, ax=ax)
+        reserve = ax.lines[0]
+        dividends = fig.axes[1].lines[0]
+        assert reserve.get_drawstyle() == "default"
+        assert dividends.get_drawstyle() == "default"
+        times, values = reserve.get_data()
+        assert np.any(np.isclose(times, hit))
+        expected = (1.0 + times if interest_force == 0.0 else
+                    (1.0 + 1.0 / interest_force) * np.exp(interest_force * times)
+                    - 1.0 / interest_force)
+        np.testing.assert_allclose(values, np.minimum(2.0, expected))
+        dividend_times, payments = dividends.get_data()
+        assert np.any(np.isclose(dividend_times, hit))
+        np.testing.assert_allclose(
+            payments, (1.0 + 2.0 * interest_force) * np.maximum(dividend_times - hit, 0.0),
+            atol=1e-14,
+        )
+        assert payments[-1] == pytest.approx(path.total_dividends)
+    finally:
+        plt.close(fig)
+
+
+def test_worsening_path_preserves_recorded_growth_and_jumps():
+    path = _path()
+    fig, ax = plt.subplots()
+    try:
+        plot_worsening_pareto_path(path, ax=ax)
+        np.testing.assert_allclose(
+            ax.lines[0].get_path().vertices, np.column_stack((path.times, path.reserves)),
+        )
+    finally:
+        plt.close(fig)
+
+
+@pytest.mark.parametrize("plotter", [plot_discrete_time_surplus_cdf, plot_discrete_time_deficit_cdf])
+def test_discrete_cdf_shows_point_mass_and_both_tails(plotter):
+    result = finite_time_discrete_time_ruin(
+        [[0.5, 0.5]], premiums=[0.0], return_result=True,
+    )
+    fig, ax = plt.subplots()
+    try:
+        plotter(result, period=0, ax=ax)
+        x, y = ax.lines[0].get_data()
+        point = 0.0 if plotter is plot_discrete_time_surplus_cdf else 1.0
+        assert x[0] < point < x[-1]
+        assert y[0] == 0.0
+        assert y[-1] == 1.0
+        assert y[np.flatnonzero(x == point)[0]] == 1.0
+        assert ax.lines[0].get_drawstyle() == "steps-post"
+    finally:
+        plt.close(fig)
+
+
+@pytest.mark.parametrize("region", ["any_line", "total", "hybrid"])
+def test_solvency_heatmap_agrees_with_predicate_and_contains_region(region):
+    fig, ax = plt.subplots()
+    try:
+        plot_solvency_region_2d(
+            [1.0, 1.0], [0.0, 0.0], period=1, region=region,
+            severity_limit=[1.0, 0.5], grid_size=11, ax=ax,
+        )
+        upper = ax.get_xlim()[1]
+        if region == "total":
+            assert upper >= 2.0
+        points = np.linspace(0.0, upper, 11)
+        predicate = solvency_region(region, severity_limit=[1.0, 0.5])
+        expected = [[predicate(np.array([x, y]), np.ones(2), 1) for x in points]
+                    for y in points]
+        np.testing.assert_array_equal(ax.collections[0].get_array().reshape(11, 11), expected)
+    finally:
+        plt.close(fig)
+
+
+@pytest.mark.parametrize("limit", [-1.0, np.nan, np.inf, [0.0, -1.0]])
+def test_solvency_heatmap_rejects_invalid_severity_limit(limit):
+    with pytest.raises(ValueError, match="severity_limit"):
+        plot_solvency_region_2d([1.0, 1.0], [0.0, 0.0], period=1,
+                                region="hybrid", severity_limit=limit)
+
+
+def _multirisk_plot_result():
+    return MultiriskDividendCTMCResult(
+        expected_time_to_ruin=1.0, ruin_probability=0.8,
+        expected_dividends=np.zeros(3), expected_penalties=np.zeros(3),
+        ruin_state_probabilities={(-1.0, 2.0, 0.0): 0.2, (-1.0, 2.0, 1.0): 0.3,
+                                  (2.0, -1.0, 0.0): 0.3},
+        expected_surplus_at_ruin=np.zeros(3), expected_deficit_at_ruin=np.zeros(3),
+        state_count=3, grid_step=1.0, initial_reserves=np.ones(3), barriers=np.ones(3),
+        lower_bounds=np.zeros(3), ruin_lines=(0, 1),
+    )
+
+
+def test_multirisk_ruin_state_plot_sums_projected_masses():
+    result = _multirisk_plot_result()
+    fig, ax = plt.subplots()
+    try:
+        plot_multirisk_ruin_state_distribution(result, ax=ax)
+        scatter = ax.collections[0]
+        np.testing.assert_allclose(scatter.get_offsets(), [[-1.0, 2.0], [2.0, -1.0]])
+        np.testing.assert_allclose(scatter.get_array(), [0.5, 0.3])
+        assert np.sum(scatter.get_array()) == pytest.approx(result.ruin_probability)
+    finally:
+        plt.close(fig)
+
+
+@pytest.mark.parametrize("lines", [(0, 0), (0.5, 1)])
+def test_multirisk_ruin_state_plot_rejects_invalid_projection(lines):
+    with pytest.raises(ValueError, match="line indices"):
+        plot_multirisk_ruin_state_distribution(_multirisk_plot_result(), lines=lines)
+
+
+def test_multirisk_convergence_overlay_keeps_refinement_direction():
+    convergence = MultiriskDividendConvergenceResult(
+        grid_steps=np.array([1.0, 0.5]), state_counts=np.array([10, 20]),
+        expected_time_to_ruin=np.array([1.0, 1.1]), ruin_probabilities=np.ones(2),
+        expected_dividends=np.ones((2, 1)), expected_penalties=np.zeros((2, 1)),
+    )
+    fig, ax = plt.subplots()
+    try:
+        for _ in range(2):
+            plot_multirisk_dividend_convergence(convergence, ax=ax)
+            assert ax.xaxis_inverted()
     finally:
         plt.close(fig)

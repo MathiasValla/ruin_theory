@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+import math
+import warnings
 
 import numpy as np
 from numpy.typing import ArrayLike
@@ -104,7 +106,11 @@ def estimate_multirisk_dividend_penalties_ctmc(
     ruin_lines: Sequence[int] = (0,),
     max_states: int = 20000,
 ) -> MultiriskDividendCTMCResult:
-    """Approximate multirisk dividends and insolvency penalties by a finite CTMC."""
+    """Approximate multirisk dividends and insolvency penalties by a finite CTMC.
+
+    Claim vectors are in lattice units; premium rates are monetary units per
+    unit time. Every reachable class must admit absorption at ruin.
+    """
 
     step = _positive_float(grid_step, "grid_step")
     initial = _as_1d_float(initial_reserves, "initial_reserves")
@@ -145,14 +151,14 @@ def estimate_multirisk_dividend_penalties_ctmc(
         raise ValueError("initial_reserves must be feasible after applying ruin_lines")
 
     coordinate_ranges = [range(int(lo), int(hi) + 1) for lo, hi in zip(state_lower, barrier_units)]
-    reserve_states = [tuple(values) for values in _cartesian_product(coordinate_ranges)]
-    state_count = len(reserve_states) * n_env
+    state_count = math.prod(int(hi) - int(lo) + 1 for lo, hi in zip(state_lower, barrier_units)) * n_env
     full_state_count = state_count
     maximum = int(max_states)
-    if maximum <= 0:
-        raise ValueError("max_states must be positive")
+    if maximum != max_states or maximum <= 0:
+        raise ValueError("max_states must be a positive integer")
     if state_count > maximum:
         raise ValueError("finite CTMC state count exceeds max_states")
+    reserve_states = _cartesian_product(coordinate_ranges)
 
     states: list[tuple[int, Vector]] = []
     state_index: dict[tuple[int, Vector], int] = {}
@@ -186,7 +192,7 @@ def estimate_multirisk_dividend_penalties_ctmc(
             next_units = list(units)
             next_units[line] += 1
             next_key = (env, tuple(next_units))
-            total_rate += _add_transition(row, state_index[next_key], rate, rows, cols, data)
+            total_rate += _add_transition(row, state_index[next_key], rate / step, rows, cols, data)
 
         for shock in shock_tuple:
             intensity = float(shock.intensities[env])
@@ -254,15 +260,18 @@ def estimate_multirisk_dividend_penalties_ctmc(
         terminal_rates = {key: rates[reachable] for key, rates in terminal_rates.items()}
         state_count = int(reachable.size)
 
-    operator = -q_matrix
-    rhs = np.column_stack([np.ones(state_count), absorption, dividends, penalties])
-    values = _solve_transient(operator, rhs)
-    expected_time = float(alpha @ values[:, 0])
-    ruin_probability = float(alpha @ values[:, 1])
-    expected_dividends = alpha @ values[:, 2 : 2 + n_lines]
-    expected_penalties = alpha @ values[:, 2 + n_lines :]
+    can_reach_ruin = _reachable_indices(q_matrix.T.tocsr(), absorption)
+    if can_reach_ruin.size != state_count:
+        raise ValueError("transient CTMC requires absorbing ruin from every reachable class")
 
-    terminal_probabilities = _terminal_distribution(operator, alpha, terminal_rates, step)
+    # One adjoint solve gives occupation times for all rewards and terminal states.
+    occupation = _solve_transient((-q_matrix).T.tocsr(), alpha)
+    expected_time = float(np.sum(occupation))
+    ruin_probability = float(occupation @ absorption)
+    expected_dividends = occupation @ dividends
+    expected_penalties = occupation @ penalties
+
+    terminal_probabilities = _terminal_distribution(occupation, terminal_rates, step)
     surplus_at_ruin = np.zeros(n_lines, dtype=float)
     deficit_at_ruin = np.zeros(n_lines, dtype=float)
     for terminal, probability in terminal_probabilities.items():
@@ -334,7 +343,9 @@ def _add_claim_transition(
     post_claim = tuple(int(unit) - int(amount) for unit, amount in zip(units, claim))
     if any(post_claim[line] < 0 for line in ruin_lines):
         absorption[row] += rate
-        terminal_rates.setdefault(post_claim, np.zeros_like(absorption))[row] += rate
+        if post_claim not in terminal_rates:
+            terminal_rates[post_claim] = np.zeros_like(absorption)
+        terminal_rates[post_claim][row] += rate
         return rate
     clipped = tuple(
         int(min(max(value, lower_units[line]), barrier_units[line]))
@@ -360,31 +371,31 @@ def _add_transition(
 
 
 def _terminal_distribution(
-    operator: sparse.csr_matrix,
-    alpha: np.ndarray,
+    occupation: np.ndarray,
     terminal_rates: Mapping[Vector, np.ndarray],
     step: float,
 ) -> dict[tuple[float, ...], float]:
     if not terminal_rates:
         return {}
-    keys = list(terminal_rates)
-    rhs = np.column_stack([terminal_rates[key] for key in keys])
-    values = _solve_transient(operator, rhs)
-    probabilities = alpha @ values
+    probabilities = {key: float(occupation @ rates) for key, rates in terminal_rates.items()}
     return {
-        tuple(float(step * value) for value in key): float(probability)
-        for key, probability in zip(keys, np.ravel(probabilities))
+        tuple(float(step * value) for value in key): probability
+        for key, probability in probabilities.items()
         if probability > 1e-14
     }
 
 
 def _solve_transient(operator: sparse.csr_matrix, rhs: np.ndarray) -> np.ndarray:
     try:
-        solution = np.asarray(sparse_linalg.spsolve(operator, rhs), dtype=float)
-    except Exception as exc:  # pragma: no cover - SciPy exposes several subclasses here.
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", sparse_linalg.MatrixRankWarning)
+            solution = np.asarray(sparse_linalg.spsolve(operator, rhs), dtype=float)
+    except (sparse_linalg.MatrixRankWarning, RuntimeError) as exc:
         raise ValueError(
             "transient CTMC generator is singular; check absorbing ruin rates",
         ) from exc
+    if np.any(~np.isfinite(solution)):
+        raise ValueError("transient CTMC solve returned non-finite values")
     if rhs.ndim == 2 and solution.ndim == 1:
         return solution[:, None]
     return solution
@@ -450,6 +461,8 @@ def _clean_transition_claim_pmfs(
         if len(raw_key) != 2:
             raise ValueError("transition_claim_pmfs keys must be environment pairs")
         start, end = (int(raw_key[0]), int(raw_key[1]))
+        if start != raw_key[0] or end != raw_key[1]:
+            raise ValueError("transition_claim_pmfs keys must contain integer state indices")
         if start < 0 or start >= n_env or end < 0 or end >= n_env or start == end:
             raise ValueError("transition_claim_pmfs keys must be valid off-diagonal pairs")
         pmf = _clean_vector_pmf(raw_pmf, name="transition_claim_pmf")
@@ -498,7 +511,7 @@ def _as_probability_vector(values: ArrayLike, name: str) -> np.ndarray:
     vector = _as_1d_float(values, name)
     if np.any(vector < 0.0) or not np.isclose(np.sum(vector), 1.0):
         raise ValueError(f"{name} must be a probability vector")
-    return vector
+    return vector / np.sum(vector)
 
 
 def _as_1d_float(values: ArrayLike, name: str) -> np.ndarray:
@@ -526,8 +539,10 @@ def _positive_float(value: float, name: str) -> float:
 
 def _to_units(values: np.ndarray, step: float, name: str) -> np.ndarray:
     scaled = values / step
+    if np.any(~np.isfinite(scaled)) or np.any(np.abs(scaled) >= np.iinfo(np.int64).max):
+        raise ValueError(f"{name} exceeds the supported grid index range")
     units = np.rint(scaled).astype(int)
-    if not np.allclose(scaled, units):
+    if not np.allclose(scaled, units, rtol=0.0, atol=1e-8):
         raise ValueError(f"{name} must lie on the grid defined by grid_step")
     return units
 

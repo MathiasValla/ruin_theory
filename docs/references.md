@@ -79,8 +79,11 @@ features in scientific work.
 - Lefevre, C., and Loisel, S. (2009). Finite-time ruin probabilities for
   discrete, possibly dependent, claim severities. *Methodology and Computing
   in Applied Probability*, 11(3), 425-441.
-- Loisel, S., and Privault, N. (2008). Sensitivity analysis and density
-  estimation for finite-time ruin probabilities. HAL: hal-00201347v2.
+- Loisel, S., and Privault, N. (2009). Sensitivity analysis and density
+  estimation for finite-time ruin probabilities. *Journal of Computational
+  and Applied Mathematics*, 230(1), 107-120.
+  [doi:10.1016/j.cam.2008.10.066](https://doi.org/10.1016/j.cam.2008.10.066).
+  Earlier preprint: HAL hal-00201347 (2008).
 - Loisel, S. (2004). *Contribution a l'etude de processus univaries et
   multivaries de la theorie de la ruine*. PhD thesis, Universite Claude
   Bernard Lyon 1.

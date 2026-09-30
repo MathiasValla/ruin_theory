@@ -164,6 +164,8 @@ def frequency_function_from_response(
     """Build ``lambda(p)=lambda0*f(p)`` from a prevention response function."""
 
     baseline = _positive_float(baseline_frequency, "baseline_frequency")
+    if not callable(prevention_response):
+        raise TypeError("prevention_response must be callable")
     if max_prevention is not None:
         validate_prevention_response(
             prevention_response,
@@ -386,9 +388,6 @@ def _prevention_bounds(
         "max_prevention",
     )
     upper = min(upper, np.nextafter(premium_rate, 0.0))
-    if upper <= 0.0:
-        raise ValueError("admissible prevention interval must have positive length")
-
     threshold = 0.0 if activation_threshold is None else _nonnegative_float(
         activation_threshold,
         "activation_threshold",
@@ -402,16 +401,19 @@ def _minimize_with_candidates(
     upper: float,
     threshold: float,
     tol: float,
+    lower: float = 0.0,
 ) -> tuple[float, str, float]:
-    candidates: list[tuple[float, str]] = [(0.0, "zero"), (upper, "upper")]
+    candidates: list[tuple[float, str]] = [
+        (lower, "zero" if lower == 0.0 else "interior"), (upper, "upper"),
+    ]
     if threshold > 0.0:
         candidates.append((threshold, "threshold"))
 
-    lower = threshold if threshold > 0.0 else 0.0
-    if upper - lower > tol:
+    search_lower = max(threshold, lower)
+    if upper - search_lower > tol:
         optimum = optimize.minimize_scalar(
             objective,
-            bounds=(lower, upper),
+            bounds=(search_lower, upper),
             method="bounded",
             options={"xatol": tol},
         )
@@ -528,21 +530,22 @@ def _projected_log_calendar(
             amounts[~positive] = zero_fill
         return amounts, 0.0
 
-    scores = weights[positive] / durations[positive]
-    high = float(scores.max())
-    low = 0.0
+    # Bisect log(tau): tau itself can underflow for effective prevention.
+    log_scores = np.log(weights[positive]) - np.log(durations[positive])
+    high = float(log_scores.max())
+    low = float(log_scores.min()) - effectiveness * max_prevention
     for _ in range(160):
-        tau = 0.5 * (low + high)
-        raw = np.log(scores / tau) / effectiveness
+        log_tau = 0.5 * (low + high)
+        raw = (log_scores - log_tau) / effectiveness
         trial = np.clip(raw, 0.0, max_prevention)
         spent = float(np.dot(durations[positive], trial))
         if spent > annual_budget:
-            low = tau
+            low = log_tau
         else:
-            high = tau
+            high = log_tau
 
-    tau = high
-    amounts[positive] = np.clip(np.log(scores / tau) / effectiveness, 0.0, max_prevention)
+    amounts[positive] = np.clip((log_scores - high) / effectiveness, 0.0, max_prevention)
+    tau = math.exp(high) if high <= math.log(np.finfo(float).max) else math.inf
     return amounts, float(tau)
 
 
@@ -566,11 +569,12 @@ def _generic_periodic_calendar(
         return _allocate_flat_budget(durations, annual_budget, max_prevention)
 
     x0 = np.full_like(weights, annual_budget / durations.sum())
+    scaled_weights = weights / weights.max()
 
     def objective(amounts: np.ndarray) -> float:
         return float(
             np.dot(
-                weights,
+                scaled_weights,
                 _response_values(prevention_response, amounts, "prevention_response"),
             )
         )
@@ -605,10 +609,14 @@ def _numerical_derivative(
     *,
     upper: float,
 ) -> float:
-    h = max(1e-6, upper * 1e-6)
+    if upper == 0.0:
+        return 0.0
+    h = min(max(1e-6, upper * 1e-6), upper)
     x = float(point)
     if x - h < 0.0:
         return (_frequency_value(function, x + h) - _frequency_value(function, x)) / h
+    if x + h > upper:
+        return (_frequency_value(function, x) - _frequency_value(function, x - h)) / h
     return (_frequency_value(function, x + h) - _frequency_value(function, x - h)) / (2.0 * h)
 
 
@@ -620,23 +628,18 @@ def _mixture_claim_distribution(
     if np.any(~np.isfinite(weights)) or np.any(weights < 0.0):
         raise ValueError("claim rates must be finite and non-negative")
     total = float(weights.sum())
-    if total <= 0.0:
+    if not np.isfinite(total) or total <= 0.0:
         raise ValueError("at least one claim rate must be positive")
     weights = weights / total
-    first, second = distributions
-    means = np.array([first.mean(), second.mean()], dtype=float)
-    variances = np.array(
-        [
-            np.nan if first.variance() is None else first.variance(),
-            np.nan if second.variance() is None else second.variance(),
-        ],
-        dtype=float,
-    )
-    mean = float(weights @ means)
+    active = [(weight, law) for weight, law in zip(weights, distributions) if weight > 0.0]
+    mean = float(sum(weight * law.mean() for weight, law in active))
+    variances = [law.variance() for _, law in active]
     variance = None
-    if np.all(np.isfinite(variances)):
-        second_moment = float(weights @ (variances + means**2))
-        variance = max(second_moment - mean**2, 0.0)
+    if all(value is not None for value in variances):
+        variance = float(sum(
+            weight * (value + (law.mean() - mean) ** 2)
+            for (weight, law), value in zip(active, variances)
+        ))
 
     def sampler(rng: np.random.Generator, n: int) -> np.ndarray:
         choices = rng.choice(2, size=n, p=weights)
@@ -648,13 +651,13 @@ def _mixture_claim_distribution(
         return values
 
     def weighted(method: str, x: np.ndarray) -> np.ndarray:
-        return weights[0] * getattr(first, method)(x) + weights[1] * getattr(second, method)(x)
+        return sum(weight * getattr(law, method)(x) for weight, law in active)
 
     def mgf(t: float) -> float:
-        return float(weights[0] * first.mgf(t) + weights[1] * second.mgf(t))
+        return float(sum(weight * law.mgf(t) for weight, law in active))
 
     def laplace(s: float) -> float:
-        return float(weights[0] * first.laplace(s) + weights[1] * second.laplace(s))
+        return float(sum(weight * law.laplace(s) for weight, law in active))
 
     return ClaimDistribution(
         name="two_claim_mixture",
@@ -668,7 +671,7 @@ def _mixture_claim_distribution(
         laplace_function=laplace,
         metadata={
             "weights": weights.copy(),
-            "component_names": (first.name, second.name),
+            "component_names": tuple(law.name for law in distributions),
         },
     )
 
@@ -692,8 +695,8 @@ def _two_claim_adjustment_coefficient(
 
     def equation(r: float) -> float:
         return (
-            lambda1 * (small_claim_distribution.mgf(r) - 1.0)
-            + lambda2 * (large_claim_distribution.mgf(r) - 1.0)
+            (lambda1 * (small_claim_distribution.mgf(r) - 1.0) if lambda1 else 0.0)
+            + (lambda2 * (large_claim_distribution.mgf(r) - 1.0) if lambda2 else 0.0)
             - premium * r
         )
 
@@ -721,7 +724,7 @@ def _two_claim_adjustment_coefficient(
         upper *= 2.0
     else:
         raise ValueError("could not bracket the adjustment coefficient")
-    return float(optimize.brentq(equation, lower, upper, xtol=tol, rtol=tol))
+    return float(optimize.brentq(equation, lower, upper, xtol=tol, rtol=max(tol, 4 * np.finfo(float).eps)))
 
 
 def _exponential_response(effectiveness: float) -> PreventionResponse:
@@ -926,7 +929,7 @@ def periodic_lundberg_coefficient(
             high = finite_positive_upper(lower, high)
         elif not np.isfinite(value) or value <= 0.0:
             raise ValueError("upper does not bracket the periodic Lundberg coefficient")
-    return float(optimize.brentq(kappa, lower, high, xtol=tol, rtol=tol))
+    return float(optimize.brentq(kappa, lower, high, xtol=tol, rtol=max(tol, 4 * np.finfo(float).eps)))
 
 
 def optimize_constant_prevention(
@@ -964,7 +967,7 @@ def optimize_constant_prevention(
         max_prevention=max_prevention,
         activation_threshold=activation_threshold,
     )
-    if validate_response:
+    if validate_response and upper > 0.0:
         validate_prevention_response(
             frequency_function,
             max_prevention=upper,
@@ -991,7 +994,7 @@ def optimize_constant_prevention(
 
     net_premium = gross_premium - amount
     claim_arrival_rate = _frequency_value(frequency_function, amount)
-    safety = 1.0 / value - 1.0
+    safety = 1.0 / value - 1.0 if value > 0.0 else math.inf
     non_ruin_zero = max(1.0 - value, 0.0)
     prevention_program, model = _constant_prevention_model(
         claim_distribution=claim_distribution,
@@ -1061,7 +1064,7 @@ def optimize_expected_surplus_prevention(
         max_prevention=max_prevention,
         activation_threshold=activation_threshold,
     )
-    if validate_response:
+    if validate_response and upper > 0.0:
         validate_prevention_response(
             frequency_function,
             max_prevention=upper,
@@ -1254,16 +1257,15 @@ def optimize_dynamic_prevention_calendar(
 
     for period in range(pressure.size - 1, -1, -1):
         duration = period_lengths[period]
-        for budget_index, remaining in enumerate(budget_grid):
-            max_spend = min(remaining, cap * duration)
-            feasible = budget_grid[budget_grid <= max_spend + 1e-12]
-            if feasible.size == 0:
-                feasible = np.array([0.0])
-            amounts = feasible / duration
-            response = _response_values(response_function, amounts, "prevention_response")
-            future_budget = remaining - feasible
-            future = np.interp(future_budget, budget_grid, values[period + 1])
-            objective = pressure[period] * response + future
+        feasible = budget_grid[budget_grid <= cap * duration]
+        response = _response_values(
+            response_function, np.minimum(feasible / duration, cap), "prevention_response",
+        )
+        for budget_index in range(grid_count):
+            count = min(feasible.size, budget_index + 1)
+            # Both spending and remaining budgets lie on the same uniform grid.
+            future = values[period + 1, budget_index - count + 1:budget_index + 1][::-1]
+            objective = pressure[period] * response[:count] + future
             best = int(np.argmin(objective))
             values[period, budget_index] = float(objective[best])
             decisions[period, budget_index] = float(feasible[best])
@@ -1361,7 +1363,9 @@ def optimize_two_claim_prevention(
         max_prevention=max_prevention,
         activation_threshold=None,
     )
-    if validate_response:
+    if not callable(large_claim_frequency_function):
+        raise TypeError("large_claim_frequency_function must be callable")
+    if validate_response and upper > 0.0:
         validate_prevention_response(
             large_claim_frequency_function,
             max_prevention=upper,
@@ -1380,11 +1384,15 @@ def optimize_two_claim_prevention(
         net = c - amount
         return (lambda1 * mu1 + lambda2(amount) * mu2) / net
 
+    def net_drift(amount: float) -> float:
+        return c - amount - lambda1 * mu1 - lambda2(amount) * mu2
+
     def heavy_tail_constant(amount: float) -> float:
-        denominator = c - amount - lambda1 * mu1 - lambda2(amount) * mu2
+        rate = lambda2(amount)
+        denominator = c - amount - lambda1 * mu1 - rate * mu2
         if denominator <= 0.0:
             return np.inf
-        return lambda2(amount) / denominator
+        return rate / denominator
 
     def adjustment(amount: float) -> float:
         return _two_claim_adjustment_coefficient(
@@ -1399,7 +1407,7 @@ def optimize_two_claim_prevention(
     if objective_name == "zero_surplus":
         objective_function = loss_ratio
     elif objective_name == "adjustment_coefficient":
-        objective_function = lambda amount: -adjustment(amount)
+        objective_function = lambda amount: -adjustment(amount) if net_drift(amount) > 0.0 else np.inf
     elif objective_name == "heavy_tail_large":
         objective_function = heavy_tail_constant
     else:
@@ -1407,9 +1415,24 @@ def optimize_two_claim_prevention(
             "objective must be 'zero_surplus', 'adjustment_coefficient' or 'heavy_tail_large'",
         )
 
-    amount, boundary, _ = _minimize_with_candidates(
+    lower = 0.0
+    admissible_upper = upper
+    if objective_name != "zero_surplus":
+        # A convex frequency makes the positive-drift region a single interval.
+        seed, _, minimum = _minimize_with_candidates(
+            lambda amount: -net_drift(amount), upper=upper, threshold=0.0, tol=tol,
+        )
+        if minimum >= 0.0:
+            raise ValueError("net profit condition must hold for some prevention amount")
+        if net_drift(0.0) <= 0.0:
+            lower = optimize.brentq(net_drift, 0.0, seed, xtol=tol)
+        if net_drift(upper) <= 0.0:
+            admissible_upper = optimize.brentq(net_drift, seed, upper, xtol=tol)
+
+    amount, boundary, selected_objective = _minimize_with_candidates(
         objective_function,
-        upper=upper,
+        upper=admissible_upper,
+        lower=lower,
         threshold=0.0,
         tol=tol,
     )
@@ -1422,7 +1445,9 @@ def optimize_two_claim_prevention(
     )
     selected_loss_ratio = loss_ratio(amount)
     coefficient: float | None = None
-    if selected_loss_ratio < 1.0:
+    if objective_name == "adjustment_coefficient":
+        coefficient = -selected_objective
+    elif selected_loss_ratio < 1.0:
         try:
             coefficient = adjustment(amount)
         except (ValueError, OverflowError, NotImplementedError):
@@ -1441,12 +1466,9 @@ def optimize_two_claim_prevention(
         loss_ratio=float(selected_loss_ratio),
         non_ruin_probability_at_zero=float(max(1.0 - selected_loss_ratio, 0.0)),
         adjustment_coefficient=coefficient,
-        prevention_is_useful_at_zero=two_claim_prevention_useful_at_zero(
-            premium_rate=c,
-            small_claim_arrival_rate=lambda1,
-            large_claim_frequency_function=large_claim_frequency_function,
-            small_claim_mean=mu1,
-            large_claim_mean=mu2,
+        prevention_is_useful_at_zero=bool(
+            -_numerical_derivative(large_claim_frequency_function, 0.0, upper=upper)
+            > (lambda1 * mu1 + lambda2(0.0) * mu2) / (mu2 * c)
         ),
         boundary=boundary,
         model=CramerLundbergProcess(
@@ -1477,9 +1499,10 @@ def heavy_tail_expected_ruin_time_asymptotic(
     if net_capacity <= 0.0:
         raise ValueError("annual_capacity must exceed annual_budget")
 
-    capacity_power = alpha / (1.0 - alpha)
-    tail_power = -1.0 / (1.0 - alpha)
-    return float(net_capacity**capacity_power * (tail * math.gamma(1.0 - alpha)) ** tail_power)
+    log_time = (
+        alpha * math.log(net_capacity) - math.log(tail) - math.lgamma(1.0 - alpha)
+    ) / (1.0 - alpha)
+    return math.exp(log_time) if log_time <= math.log(np.finfo(float).max) else math.inf
 
 
 def optimize_heavy_tail_prevention_calendar(
@@ -1559,8 +1582,10 @@ def heavy_tail_one_big_jump_ruin_probability(
 ) -> float:
     """One-big-jump finite-horizon ruin-probability heuristic.
 
-    The approximation discretizes the periodic integral
+    The approximation integrates the piecewise-linear reserve path in
     ``int W_p(s+t) * (u + c t - int_0^t p(s+r)dr)^(-alpha) dt``.
+    Each substep is integrated analytically, including an integrable singularity
+    at zero initial capital when net capacity is positive.
     """
 
     if not isinstance(calendar, PeriodicPreventionResult):
@@ -1576,9 +1601,11 @@ def heavy_tail_one_big_jump_ruin_probability(
         raise ValueError("steps_per_period must be a positive integer")
 
     n_periods = calendar.amounts.size
-    period = int(start_period) % n_periods
+    period = int(start_period)
+    if period != start_period:
+        raise ValueError("start_period must be an integer")
+    period %= n_periods
     time_remaining = horizon_value
-    elapsed = 0.0
     approximation = 0.0
     controlled_density = calendar.weights * calendar.frequency_multipliers / calendar.durations
 
@@ -1589,13 +1616,26 @@ def heavy_tail_one_big_jump_ruin_probability(
             if time_remaining <= 0.0:
                 break
             step = min(dt, time_remaining)
-            midpoint = elapsed + 0.5 * step
-            spent = reserve + capacity * midpoint
-            if spent <= 0.0:
+            net_rate = capacity - calendar.amounts[period]
+            next_reserve = reserve + net_rate * step
+            if next_reserve < 0.0:
                 return 1.0
-            approximation += controlled_density[period] * spent ** (-alpha) * step
-            reserve -= calendar.amounts[period] * step
-            elapsed += step
+            if controlled_density[period] > 0.0:
+                high = max(reserve, next_reserve)
+                low = min(reserve, next_reserve)
+                if high == 0.0:
+                    return 1.0
+                change = (high - low) / high
+                if change == 0.0:
+                    factor = 1.0
+                elif change == 1.0:
+                    factor = 1.0 / (1.0 - alpha)
+                else:
+                    factor = -math.expm1((1.0 - alpha) * math.log1p(-change)) / (
+                        (1.0 - alpha) * change
+                    )
+                approximation += controlled_density[period] * step * high ** (-alpha) * factor
+            reserve = next_reserve
             time_remaining -= step
         period = (period + 1) % n_periods
 

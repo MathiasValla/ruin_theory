@@ -187,3 +187,26 @@ def test_estimate_gerber_shiu_runs_against_risk_process():
     assert result.ruin_probability > 0.95
     assert result.estimate == pytest.approx(result.ruin_probability)
     assert np.nanmean(result.deficits_at_ruin) == pytest.approx(1.0)
+
+
+def test_gerber_shiu_exponential_high_discount_remains_a_small_transform():
+    model = CramerLundbergProcess(
+        premium_rate=1.0, claim_arrival_rate=1.0, claim_distribution=exponential(1.0),
+    )
+    result = gerber_shiu_exponential_closed_form(
+        model, [0.0, 1.0], discount_rate=1e20, return_result=True,
+    )
+    np.testing.assert_allclose(result.values, 1e-20 * np.exp(-np.array([0.0, 1.0])), rtol=1e-12)
+    assert result.decay_rate == pytest.approx(1.0)
+
+
+def test_gerber_shiu_from_paths_censors_later_ruin_at_requested_horizon():
+    result = gerber_shiu_from_paths([_ruined_path(), _safe_path()], horizon=0.5)
+    assert result.horizon == 0.5
+    assert result.estimate == 0.0
+    assert result.ruin_probability == 0.0
+
+
+def test_gerber_shiu_from_paths_does_not_extrapolate_unobserved_survival():
+    with pytest.raises(ValueError, match="observed"):
+        gerber_shiu_from_paths([_safe_path()], horizon=3.0)

@@ -12,6 +12,7 @@ from ruin_theory import (
     de_vylder_approximation,
     deterministic,
     exponential,
+    expected_time_to_ruin_exponential,
     finite_time_ruin_exponential,
     heavy_tail_integrated_tail_asymptotic,
     integrated_tail_survival,
@@ -438,3 +439,46 @@ def test_heavy_tail_custom_tail_keeps_model_support_checks():
     )
     with pytest.raises(ValueError, match="by-claims"):
         heavy_tail_integrated_tail_asymptotic(by_claim, [1.0], custom_tail)
+
+
+def test_conditional_ruin_time_respects_change_of_time_units():
+    slow = CramerLundbergProcess(premium_rate=1, claim_arrival_rate=0.5,
+                                claim_distribution=exponential(1))
+    fast = CramerLundbergProcess(premium_rate=3, claim_arrival_rate=1.5,
+                                claim_distribution=exponential(1))
+    np.testing.assert_allclose(expected_time_to_ruin_exponential(fast, [0, 1, 2]),
+                               expected_time_to_ruin_exponential(slow, [0, 1, 2]) / 3)
+
+
+def test_hyperexponential_ruin_without_arrivals_is_zero():
+    model = CramerLundbergProcess(premium_rate=0, claim_arrival_rate=1,
+                                 claim_distribution=mixture_exponential([1, 2]),
+                                 prevention=PreventionProgram(frequency_multiplier=0))
+    np.testing.assert_array_equal(ultimate_ruin_hyperexponential(model, [0, 2]), [0, 0])
+
+
+@pytest.mark.parametrize("factory, formula", [
+    (phase_type, ultimate_ruin_phase_type),
+    (matrix_exponential, ultimate_ruin_matrix_exponential),
+])
+def test_matrix_ruin_handles_infinite_capital_without_exponentiating_infinity(
+    factory, formula, monkeypatch
+):
+    from scipy import linalg
+
+    model = CramerLundbergProcess(premium_rate=1, claim_arrival_rate=0.5,
+                                 claim_distribution=factory([0.5, 0.5], [[-1, 0], [0, -2]]))
+    original = linalg.expm
+
+    def finite_expm(matrix):
+        assert np.all(np.isfinite(matrix)), "non-finite matrix passed to expm"
+        return original(matrix)
+
+    monkeypatch.setattr(linalg, "expm", finite_expm)
+    assert formula(model, np.inf) == 0.0
+
+
+def test_de_vylder_zero_severity_is_zero_ruin():
+    model = CramerLundbergProcess(premium_rate=1, claim_arrival_rate=1,
+                                 claim_distribution=deterministic(0))
+    np.testing.assert_array_equal(de_vylder_approximation(model, [0, 2]), [0, 0])

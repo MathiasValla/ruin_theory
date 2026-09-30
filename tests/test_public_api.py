@@ -1,6 +1,7 @@
 """Top-level public API smoke tests."""
 
 import numpy as np
+import inspect
 
 from ruin_theory import (
     AllocationGridResult,
@@ -265,6 +266,26 @@ from ruin_theory import (
     win_first_time_bound,
 )
 import ruin_theory as rt
+from ruin_theory import plotting
+
+
+def test_all_exports_resolve_without_duplicates():
+    assert len(rt.__all__) == len(set(rt.__all__))
+    for name in rt.__all__:
+        assert isinstance(name, str)
+        assert not name.startswith("_")
+        assert getattr(rt, name) is not None
+
+
+def test_all_plotting_helpers_are_identical_top_level_exports():
+    helpers = {
+        name: value for name, value in vars(plotting).items()
+        if name.startswith("plot_") and inspect.isfunction(value)
+    }
+    assert helpers
+    assert helpers.keys() <= set(rt.__all__)
+    for name, helper in helpers.items():
+        assert getattr(rt, name) is helper
 
 
 def test_simulation_and_diagnostics_are_top_level_exports():

@@ -494,6 +494,8 @@ def ultimate_ruin_hyperexponential(model: CramerLundbergProcess, u: ArrayLike) -
         return np.zeros_like(surplus, dtype=float)
     lam = model.claim_arrival_rate
     c = model.premium_rate
+    if lam == 0.0:
+        return np.zeros_like(surplus, dtype=float)
     if c <= 0.0:
         return np.ones_like(surplus, dtype=float)
     mean = float(np.sum(weights / rates))
@@ -593,8 +595,9 @@ def ultimate_ruin_phase_type(
     maximum_generator = matrix + rho * np.outer(exit_rates, beta)
 
     flat = surplus.ravel()
-    values = np.empty_like(flat, dtype=float)
-    for index, value in enumerate(flat):
+    values = np.zeros_like(flat, dtype=float)
+    for index in np.flatnonzero(np.isfinite(flat)):
+        value = flat[index]
         values[index] = rho * float(beta @ linalg.expm(maximum_generator * value) @ ones)
     return np.clip(values.reshape(surplus.shape), 0.0, 1.0)
 
@@ -645,8 +648,9 @@ def ultimate_ruin_matrix_exponential(
     maximum_generator = matrix + rho * np.outer(equilibrium_exit, equilibrium_initial)
 
     flat = surplus.ravel()
-    values = np.empty_like(flat, dtype=float)
-    for index, value in enumerate(flat):
+    values = np.zeros_like(flat, dtype=float)
+    for index in np.flatnonzero(np.isfinite(flat)):
+        value = flat[index]
         values[index] = rho * float(
             equilibrium_initial @ linalg.expm(maximum_generator * value) @ equilibrium_tail
         )
@@ -661,11 +665,11 @@ def expected_time_to_ruin_exponential(
 
     _net_profit_check(model)
     rate = _effective_exponential_rate(model)
-    if not np.isfinite(rate):
+    if not np.isfinite(rate) or model.claim_arrival_rate == 0.0:
         return np.full_like(_as_array(model.initial_capital if u is None else u), np.inf)
     beta = model.claim_arrival_rate / model.premium_rate
     surplus = _as_array(model.initial_capital if u is None else u)
-    return (beta * surplus + 1.0) / (rate - beta)
+    return (beta * surplus + 1.0) / (model.premium_rate * (rate - beta))
 
 
 def finite_time_ruin_exponential(
@@ -762,11 +766,16 @@ def de_vylder_approximation(model: CramerLundbergProcess, u: ArrayLike) -> np.nd
     """Three-moment De Vylder exponential approximation."""
 
     _primary_claim_formula_check(model)
+    surplus = _as_array(u)
+    scale = _severity_scale(model)
+    if scale == 0.0 or model.claim_arrival_rate == 0.0:
+        return np.zeros_like(surplus, dtype=float)
     mean = model.claim_distribution.mean()
+    if mean == 0.0:
+        return np.zeros_like(surplus, dtype=float)
     second = _raw_moment(model.claim_distribution, 2)
     if not np.isfinite(second):
         raise ValueError("finite second moment is required")
-    scale = _severity_scale(model)
     m1 = scale * mean
     m2 = scale**2 * second
     m3 = scale**3 * _raw_moment(model.claim_distribution, 3)

@@ -17,7 +17,10 @@ MomentFunction = Callable[[float], float]
 
 
 def _as_array(x: ArrayLike) -> np.ndarray:
-    return np.asarray(x, dtype=float)
+    values = np.asarray(x, dtype=float)
+    if np.any(np.isnan(values)):
+        raise ValueError("x must not contain NaN")
+    return values
 
 
 def _finite_float(value: float, name: str) -> float:
@@ -52,12 +55,12 @@ def _sample_size(n: int) -> int:
 
 
 def _finite_1d(values: ArrayLike, name: str) -> np.ndarray:
-    array = _as_array(values)
+    array = np.asarray(values, dtype=float)
     if array.ndim != 1 or array.size == 0:
         raise ValueError(f"{name} must be a non-empty one-dimensional array")
     if np.any(~np.isfinite(array)):
         raise ValueError(f"{name} must contain only finite values")
-    return array
+    return array.copy()
 
 
 def _phase_type_inputs(
@@ -94,7 +97,7 @@ def _phase_type_inputs(
         raise ValueError("subgenerator exit rates must be non-negative")
 
     eigenvalues = linalg.eigvals(matrix)
-    if np.max(np.real(eigenvalues)) >= -1e-12:
+    if np.max(np.real(eigenvalues)) >= 0.0:
         raise ValueError("subgenerator must be transient with negative spectral abscissa")
     return initial.copy(), matrix.copy(), np.maximum(exit_rates, 0.0)
 
@@ -114,7 +117,7 @@ def _matrix_exponential_inputs(
         raise ValueError("initial_vector and matrix dimensions must match")
     if np.any(~np.isfinite(generator)):
         raise ValueError("matrix must contain only finite values")
-    if np.max(np.real(linalg.eigvals(generator))) >= -1e-12:
+    if np.max(np.real(linalg.eigvals(generator))) >= 0.0:
         raise ValueError("matrix must have negative spectral abscissa")
 
     if exit_vector is None:
@@ -381,6 +384,9 @@ def mixture_exponential(rates: ArrayLike, weights: ArrayLike | None = None) -> C
     if np.any(weight_array < 0) or not np.isclose(total_weight, 1.0):
         raise ValueError("weights must be non-negative and sum to one")
     weight_array = weight_array / total_weight
+    active = weight_array > 0.0
+    active_rates = rate_array[active]
+    active_weights = weight_array[active]
 
     def sampler(rng: np.random.Generator, n: int) -> np.ndarray:
         idx = rng.choice(rate_array.size, size=n, p=weight_array)
@@ -419,8 +425,8 @@ def mixture_exponential(rates: ArrayLike, weights: ArrayLike | None = None) -> C
         cdf_function=lambda x: 1.0 - survival(x),
         survival_function=survival,
         pdf_function=pdf,
-        mgf_function=lambda t: float(np.sum(weight_array * rate_array / (rate_array - t)))
-        if t < float(rate_array.min())
+        mgf_function=lambda t: float(np.sum(active_weights * active_rates / (active_rates - t)))
+        if t < float(active_rates.min())
         else np.inf,
         laplace_function=lambda s: float(np.sum(weight_array * rate_array / (rate_array + s))),
         metadata={"rates": rate_array.copy(), "weights": weight_array.copy()},

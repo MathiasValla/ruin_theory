@@ -48,8 +48,12 @@ mkdocs build --strict
 - Check the release archive before upload:
 
 ```bash
-tar -tf dist/*.tar.gz | grep -Ei 'ressources|\\.pdf|private|tmp/pdfs' && exit 1 || true
+python scripts/check_release_artifacts.py dist/*.tar.gz dist/*.whl
 ```
+
+This check fails on PDFs and private reference directories in either artifact.
+Generated PDF figures can stay outside the release archives; publish them
+separately as supplementary material when appropriate.
 
 ## Zenodo
 

@@ -87,7 +87,9 @@ Available functions:
 
 - `raw_moment(distribution, order=1)`: returns `E[X**order]`.
 - `limited_moment(distribution, limit, order=1, epsabs=1e-10)`: returns
-  `E[min(X, limit)**order]`; `limit` may be scalar or array-like.
+  `E[min(X, limit)**order]`; `limit` may be scalar or array-like. Discrete
+  laws and exponential/Gamma/Erlang laws use direct formulas when supported;
+  generic laws use quadrature, whose accuracy should be checked at extreme scales.
 - `empirical_moment(data, order=1)` and
   `empirical_limited_moment(data, limit, order=1)`: empirical counterparts for
   one-dimensional non-negative observations.
@@ -900,13 +902,22 @@ Arguments:
 - `u`: one or more non-negative initial surplus values.
 - `horizon`: positive finite time horizon.
 - `n_simulations`, `ci_level`, `seed`: Monte Carlo controls.
-- `premium_income`: optional deterministic increasing callable `f(t)` that
-  accepts and returns NumPy arrays. If omitted, `f(t) = model.premium_rate * t`.
+- `premium_income`: optional positive linear callable `f(t) = c * t` that
+  accepts and returns NumPy arrays. If omitted, `f(t) = model.premium_rate * t`
+  with `model.premium_rate > 0`. The estimator includes the Jacobian `1 / c`.
+  Nonlinear incomes are currently rejected: their path-dependent inverse
+  derivative weights require a separate implementation and validation.
 - `conditional_on_claim`: if true, return the density conditional on
-  `N_T >= 1`, matching the normalization in Loisel and Privault's proposition.
+  `N_T >= 1`, dividing the continuous part by `1 - exp(-lambda * T)`.
+  This is distinct from conditioning on a negative running infimum.
   The default false value gives the ordinary ruin-probability derivative.
 - `return_pathwise_density`: if true, store the pathwise density contributions
-  used to compute standard errors.
+  used to compute standard errors. Otherwise means and variances are accumulated
+  online without allocating a simulations-by-reserves matrix.
+
+At `u=0`, the returned value is the density from the negative side of the
+infimum distribution, not its point mass at zero. At jumps of a density for
+discrete claims, a classical two-sided derivative need not exist.
 
 Returns a `RuinSensitivityEstimate` with `surplus`, `infimum_points`,
 `density`, `ruin_probability_derivative`, `standard_error`, confidence bounds,
@@ -1055,7 +1066,10 @@ Available functions:
   discounting helpers for beginning, middle and end-of-period premium timing.
 - `finite_time_discrete_time_ruin(increment_pmfs, premiums, initial_capital=0,
   grid_step=1)`: exact finite-horizon recursion for independent
-  non-stationary period aggregate claims `X_t` in `U(t)=u+c(t)-S(t)`.
+  non-stationary period aggregate claims `X_t` in `U(t)=u+c(t)-S(t)` when
+  the PMFs are complete. Missing probability in substochastic rows is charged
+  to ruin: this is exact only if all omitted claims necessarily cause ruin.
+  Deficit diagnostics describe represented ruin mass, not the unknown tail.
 - `finite_time_discrete_time_bounds(lower_increment_pmfs, upper_increment_pmfs,
   premiums, initial_capital=0, grid_step=1)`: lower/upper ruin bounds from
   stochastic lower and upper discretizations.
@@ -1105,7 +1119,9 @@ Available functions:
   ruin using the Pollaczek-Khinchine compound-geometric representation.
 - `discrete_pollaczek_khinchine_ultimate_ruin(ladder_height_pmf, surplus,
   step=1, rho=..., max_aggregate=None)`: lower-level lattice ruin probability
-  from a discretized equilibrium severity law.
+  from a discretized equilibrium severity law. The index is `floor(u/step)`,
+  with quotients within four floating-point spacings of an integer snapped
+  to that integer to preserve decimal-grid equality.
 - `equilibrium_severity_pmf(distribution, step=..., max_value=...,
   method="upper")`: discretized integrated-tail severity distribution.
 - `de_vylder_approximation(model, u)`: three-moment exponential approximation.
@@ -1401,9 +1417,11 @@ Core functions:
 - `dual_poisson_exponential_ruin_time_density(process, t)` and
   `dual_poisson_exponential_ruin_time_cdf(process, t)`: Bessel-density formula
   and numerical CDF for Poisson-exponential profits.
-- `dual_mixed_poisson_ruin_time_density(mixing_laplace, initial_capital,
-  cost_rate, profit_rate, t, step=1e-5)`: mixed-Poisson extension using
-  numerical differentiation of the mixing Laplace transform.
+- `dual_mixed_poisson_ruin_time_density(count_pmf, profit_convolution_density,
+  initial_capital, cost_rate, t, max_count=...)`: mixed-Poisson extension
+  summing the count PMF `count_pmf(n, t)` times the density of the sum of
+  `n` profits, `profit_convolution_density(n, x)`, up to `max_count`.
+  This explicitly truncated density excludes the deterministic ruin-time atom.
 
 Minimal example:
 
@@ -1472,7 +1490,10 @@ Available functions:
   non-decreasing non-ruin function.
 - `win_first_probability_exponential_interest_force(initial_capital, gain,
   premium_rate, claim_arrival_rate, claim_rate, interest_force=0)`: exact
-  exponential-claim win-first probability under constant interest.
+  exponential-claim win-first probability under constant interest when the
+  evaluated ultimate non-ruin probabilities are positive. In particular,
+  the zero-interest case with nonpositive safety loading is not supported by
+  this quotient implementation, although finite-barrier success is meaningful.
 - `maximum_before_default_survival(x, non_ruin_function)`: survival of the
   defective maximum-before-default variable, `S(x)=phi(0)/phi(x)`.
 - `maximum_before_default_hazard(x, non_ruin_function, step=None)`: numerical
@@ -1676,10 +1697,12 @@ equalizes average times in red across active lines.
 Path and expectation functions:
 
 - `red_time_metrics_from_path(path, reserve_shift=0)`: exact pathwise
-  `tau_T`, `I_T`, minimum reserve and horizon from a `SimulationPath`.
+  `tau_T`, `I_T`, minimum reserve and observed horizon from a `SimulationPath`.
+  A path stopped at ruin is not extrapolated to its requested simulation horizon.
 - `multiline_red_time_metrics_from_paths(paths)`: synchronized multirisk
   metrics, including the dependence-sensitive sum
-  `sum_k int 1{R_k(t)<0} 1{sum_j R_j(t)>0} dt`.
+  `sum_k int 1{R_k(t)<0} 1{sum_j R_j(t)>0} dt`. All metrics use the shortest
+  observed horizon among the paths and retain pre/post-jump limits.
 - `estimate_red_time_metrics(model, horizon, n_simulations=10000, seed=None,
   max_events=1000000)`: Monte Carlo estimate returned as `RedTimeEstimate`.
 - `estimate_red_time_curve(model, initial_capitals, horizon,
@@ -1795,7 +1818,9 @@ Model-building functions:
   branch severity PMFs.
 - `convolve_vector_pmfs(first, second)`: multivariate lattice convolution.
 - `compound_poisson_vector_pmf(event_pmf, mean, max_count=32,
-  tail_tolerance=1e-12)`: truncated compound-Poisson vector PMF.
+  tail_tolerance=1e-12)`: vector PMF conditional on the retained Poisson
+  event counts, with the omitted count probability returned separately.
+  A cutoff far below the mean can have error close to one; always inspect it.
 - `common_shock_increment_pmfs(shocks, period_length=1, max_count=32,
   tail_tolerance=1e-12)`: one aggregate increment PMF per environment state.
 
@@ -1920,7 +1945,9 @@ Important arguments:
   `round(x / grid_step)`.
 - `base_premium_rates` or `premium_rate_function`: either constant branch
   premium rates or a callable
-  `premium(line, environment_state, reserves, statuses) -> rate`.
+  `premium(line, environment_state, reserves, statuses) -> rate`. These are
+  monetary rates: interior lattice transitions have intensity `rate/grid_step`,
+  whereas rewards at a barrier retain rate `rate`.
 - `transition_claim_pmfs`: optional claim PMFs attached to environment
   transitions, which covers the `Q o G(alpha)` common-shock-at-transition
   mechanism in the approximation.
@@ -2119,7 +2146,9 @@ Model classes:
   `inverse(amount)` methods.
 - `InfiniteMeanRuinModel(claim_arrival_rate, tail, premium, name=...)`: risk
   process `R_t = u + p(t) - sum_{i <= N_t} X_i`. It requires
-  `tail.tail_index <= 1` and warns when
+  an infinite mean and `tail.tail_index <= 1`; a custom index-one tail does
+  not by itself imply an infinite mean. An explicitly finite mean is rejected.
+  Construction warns when
   `premium.power <= 1 / tail.tail_index`, because the infinite-horizon theorem
   no longer applies.
 
@@ -2130,7 +2159,9 @@ Core functions:
 - `infinite_mean_constant(tail_index, premium_power)`: computes
   `int_0^inf (1 + t**beta)**(-alpha) dt` by the beta-function identity.
 - `infinite_mean_one_big_jump_integral(model, initial_capital, epsabs=1e-10)`:
-  computes `lambda * int_0^inf Fbar(u + p(t)) dt`.
+  computes `lambda * int_0^inf Fbar(u + p(t)) dt` after rescaling the integration
+  variable. Both this integral and the asymptotic helper require the supported
+  strict sufficient condition `premium.power * tail.tail_index > 1`.
 - `infinite_mean_one_big_jump_asymptotic(model, initial_capital)`: computes
   `lambda * p^{-1}(u) * Fbar(u) * int_0^inf (1 + t**beta)^(-alpha) dt`.
 - `infinite_mean_ruin_curve(model, initial_capitals, method="asymptotic")`:
@@ -2354,7 +2385,9 @@ Functions:
   return_paths=False)`: simulate paths and estimate the discounted penalty.
 - `gerber_shiu_from_paths(paths, penalty=None, discount_rate=0, ci_level=0.95,
   horizon=None)`: compute the same diagnostic from pre-simulated
-  `SimulationPath` objects.
+  `SimulationPath` objects. An explicit horizon censors later ruin events;
+  otherwise the shortest supplied simulation horizon is used. Non-ruined
+  paths must be observed up to that horizon.
 
 Arguments:
 
@@ -2449,9 +2482,9 @@ Available diagnostics:
   Loisel-Privault infimum density or the corresponding ruin-probability
   derivative.
 - `plot_polynomial_expansion_error(u, exact, approximations, ax=None,
-  relative=False)`: absolute or relative error curves for Laguerre
+  relative=False)`: signed or relative error curves for Laguerre
   ultimate-ruin approximations.
-- `plot_exponential_convergence_rates(parameter_values, rates, ax=None,
+- `plot_exponential_convergence_rates(x, rates, ax=None,
   x_label="parameter")`: convergence-rate comparison across volatilities,
   safety loadings or other scalar parameters.
 - `plot_convergence_rate_bound(result, horizons, ax=None,

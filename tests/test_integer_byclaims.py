@@ -12,6 +12,8 @@ from ruin_theory import (
     estimate_integer_byclaim_ruin_probability,
     estimate_inar_byclaim_ruin_probability,
     exponential,
+    gamma,
+    lomax,
     simulate_binar_byclaim_path,
     simulate_binar_byclaim_terminal_reserves,
     simulate_integer_byclaim_path,
@@ -239,3 +241,61 @@ def test_integer_byclaim_validation_rejects_bad_parameters():
             primary_distributions=(exponential(1.0), exponential(1.0)),
             byclaim_distributions=(exponential(1.0), exponential(1.0)),
         )
+
+
+def test_gamma_claims_work_in_all_integer_simulation_entry_points():
+    model = INARByClaimModel(100.0, 10.0, 2.0, 1.0, 0.5,
+                            gamma(2.0, scale=0.5), gamma(3.0, rate=2.0))
+    path = simulate_integer_byclaim_path(model, 3, seed=42, stop_at_ruin=False)
+    terminals = simulate_integer_byclaim_terminal_reserves(
+        model, 3, n_simulations=20_000, seed=42,
+    )
+    estimate = estimate_integer_byclaim_ruin_probability(
+        model, 3, n_simulations=20, seed=42,
+    )
+    assert np.all(np.isfinite(path.reserves))
+    assert terminals.mean() == pytest.approx(model.expected_terminal_reserve(3), abs=0.2)
+    assert 0.0 <= estimate.probability <= 1.0
+
+
+@pytest.mark.parametrize("reproduction", [0.0, 1.0])
+def test_inar_reuses_primary_innovation_and_previous_byclaim_stock(reproduction):
+    model = INARByClaimModel(100.0, 10.0, 2.0, 0.0, reproduction,
+                            deterministic(1.0), deterministic(1.0))
+    path = simulate_inar_byclaim_path(model, 6, seed=42, stop_at_ruin=False)
+    expected = path.primary_counts if reproduction == 0.0 else np.cumsum(
+        path.primary_counts, axis=0,
+    )
+    np.testing.assert_array_equal(path.byclaim_counts, expected)
+
+
+def test_binar_cross_thinning_uses_previous_period_not_updated_target():
+    model = BINARByClaimModel(
+        100.0, 10.0, (2.0, 3.0), (0.0, 0.0), ((0.0, 1.0), (1.0, 0.0)),
+        (deterministic(1.0), deterministic(1.0)),
+        (deterministic(1.0), deterministic(1.0)),
+    )
+    path = simulate_binar_byclaim_path(model, 6, seed=42, stop_at_ruin=False)
+    np.testing.assert_array_equal(path.byclaim_counts[0], path.primary_counts[0])
+    np.testing.assert_array_equal(
+        path.byclaim_counts[1:], path.primary_counts[1:] + path.byclaim_counts[:-1, ::-1],
+    )
+
+
+def test_zero_counts_have_zero_expected_loss_even_with_infinite_mean_severities():
+    heavy_tail = lomax(0.8, 1.0)
+    model = INARByClaimModel(5.0, 2.0, 0.0, 0.0, 0.5, heavy_tail, heavy_tail)
+    assert model.expected_terminal_reserve(3) == 11.0
+    np.testing.assert_array_equal(
+        simulate_inar_byclaim_terminal_reserves(model, 3, n_simulations=5, seed=42),
+        np.full(5, 11.0),
+    )
+
+
+def test_binar_dormant_infinite_mean_branch_does_not_contaminate_other_branch():
+    heavy_tail = lomax(0.8, 1.0)
+    model = BINARByClaimModel(
+        5.0, 2.0, (0.0, 1.0), (0.0, 0.0), ((0.0, 0.0), (0.0, 0.0)),
+        (heavy_tail, deterministic(1.0)), (heavy_tail, deterministic(1.0)),
+    )
+    assert model.expected_terminal_reserve(3) == 5.0

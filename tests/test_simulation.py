@@ -317,7 +317,7 @@ def test_loisel_privault_ibp_custom_premium_and_pathwise_output():
         n_simulations=25,
         ci_level=0.9,
         seed=13,
-        premium_income=lambda t: t + 0.1 * t**2,
+        premium_income=lambda t: 2.0 * t,
         return_pathwise_density=True,
     )
 

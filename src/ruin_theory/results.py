@@ -39,7 +39,7 @@ class SimulationPath:
             return None
         times = np.asarray(self.times, dtype=float)
         reserves = np.asarray(self.reserves, dtype=float)
-        at_ruin = np.isclose(times, float(self.ruin_time)) & (reserves < 0.0)
+        at_ruin = (times == self.ruin_time) & (reserves < 0.0)
         candidates = np.flatnonzero(at_ruin)
         if candidates.size:
             return int(candidates[0])
@@ -68,9 +68,9 @@ class SimulationPath:
             return None
         claim_times = np.asarray(self.claim_times, dtype=float)
         claim_sizes = np.asarray(self.claim_sizes, dtype=float)
-        candidates = np.flatnonzero(np.isclose(claim_times, float(self.ruin_time)))
+        candidates = np.flatnonzero(claim_times == self.ruin_time)
         if candidates.size:
-            return float(claim_sizes[candidates[-1]])
+            return float(claim_sizes[candidates[0]])
         surplus = self.surplus_before_ruin
         deficit = self.deficit_at_ruin
         if surplus is None or deficit is None:

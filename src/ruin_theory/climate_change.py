@@ -10,6 +10,7 @@ import numpy as np
 from numpy.typing import ArrayLike
 from scipy import integrate, special, stats
 
+from .regular_variation import infinite_mean_one_big_jump_integral, pareto_infinite_mean_model
 from .results import RuinEstimate, SimulationPath
 
 
@@ -56,7 +57,8 @@ class WorseningParetoModel:
         return np.full_like(t, self.pareto_scale, dtype=float)
 
     def mean_claim_at(self, time: ArrayLike) -> np.ndarray:
-        return self.scale_at(time) / (self.shape_at(time) - 1.0)
+        t = _time_array(time)
+        return self.initial_mean_claim * (1.0 + self.worsening_speed * t)
 
     def premium_rate_at(self, time: ArrayLike) -> np.ndarray:
         return (1.0 + self.safety_loading) * self.claim_arrival_rate * self.mean_claim_at(time)
@@ -142,7 +144,12 @@ def klr_shape_asymptotic(model: WorseningParetoModel | None = None, **kwargs: fl
         2.0
         * m.initial_capital
         * (m.initial_shape - 1.0)
-        / ((1.0 + m.safety_loading) * m.claim_arrival_rate * m.worsening_speed),
+        / (
+            (1.0 + m.safety_loading)
+            * m.claim_arrival_rate
+            * m.pareto_scale
+            * m.worsening_speed
+        ),
     )
     return (
         m.claim_arrival_rate
@@ -199,13 +206,14 @@ def infinite_mean_ruin_integral(
 ) -> float:
     """Numerically compute `lambda int Fbar(u + p(t)) dt` from KLR Theorem 4.1."""
 
-    u = _positive_float(initial_capital, "initial_capital")
-
-    def integrand(time: float) -> float:
-        return float(model.survival(u + model.cumulative_premium(time)))
-
-    integral, _ = integrate.quad(integrand, 0.0, math.inf, epsabs=epsabs, limit=200)
-    return model.claim_arrival_rate * integral
+    regular_model = pareto_infinite_mean_model(
+        claim_arrival_rate=model.claim_arrival_rate,
+        tail_index=model.tail_index,
+        pareto_scale=model.pareto_scale,
+        premium_coefficient=model.premium_coefficient,
+        premium_power=model.premium_power,
+    )
+    return infinite_mean_one_big_jump_integral(regular_model, initial_capital, epsabs=epsabs)
 
 
 def simulate_worsening_pareto_path(
@@ -387,6 +395,12 @@ def climate_change_ruin_table(
         )
         horizon = shape_model.uninsurability_time(maximum)
         horizons[index] = horizon
+        shape_asymptotic[index] = klr_shape_asymptotic(shape_model)
+        scale_asymptotic[index] = klr_scale_asymptotic(scale_model)
+        if horizon == 0.0:
+            shape_finite[index] = 0.0
+            scale_finite[index] = 0.0
+            continue
         shape_finite[index] = estimate_worsening_pareto_ruin_probability(
             shape_model,
             horizon,
@@ -399,8 +413,6 @@ def climate_change_ruin_table(
             n_simulations=simulations,
             seed=rng,
         ).probability
-        shape_asymptotic[index] = klr_shape_asymptotic(shape_model)
-        scale_asymptotic[index] = klr_scale_asymptotic(scale_model)
 
     return ClimateChangeRuinTable(
         worsening_speeds=speeds,

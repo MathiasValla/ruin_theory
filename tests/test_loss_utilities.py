@@ -13,6 +13,8 @@ from ruin_theory import (
     exponential,
     limited_moment,
     raw_moment,
+    gamma,
+    erlang,
 )
 
 
@@ -41,6 +43,21 @@ def test_limited_moment_matches_exponential_deterministic_and_empirical_laws():
     sample = np.array([0.0, 2.0, 4.0])
     assert empirical_limited_moment(sample, 3.0, order=2) == pytest.approx(13.0 / 3.0)
     assert limited_moment(empirical(sample), 3.0, order=2) == pytest.approx(13.0 / 3.0)
+
+
+@pytest.mark.parametrize("distribution", [gamma(2.0, rate=1.0), erlang(2, rate=1.0)])
+@pytest.mark.parametrize("order", [1, 2])
+def test_gamma_limited_moment_retains_mass_at_large_limits(distribution, order):
+    from scipy.integrate import quad
+
+    limits = np.array([[0.0, 0.3], [5.0, 1e8]])
+    expected = np.array([
+        0.0,
+        quad(lambda x: order * x ** (order - 1) * np.exp(-x) * (1 + x), 0, 0.3)[0],
+        quad(lambda x: order * x ** (order - 1) * np.exp(-x) * (1 + x), 0, 5)[0],
+        math.factorial(order + 1),
+    ]).reshape(limits.shape)
+    np.testing.assert_allclose(limited_moment(distribution, limits, order=order), expected)
 
 
 def test_coverage_transform_supports_ordinary_and_franchise_deductibles():
@@ -170,3 +187,38 @@ def test_loss_helpers_validate_arguments():
         discretize(exponential(1.0), from_=0.0, to=1.0, step=0.5, method="sideways")
     with pytest.raises(TypeError, match="ClaimDistribution"):
         discretize(np.array([0.5, 0.5]), from_=0.0, to=1.0, step=0.5)
+
+
+@pytest.mark.parametrize("law", [gamma(200, rate=200), erlang(200, 200)])
+def test_gamma_raw_moments_avoid_intermediate_gamma_overflow(law):
+    assert raw_moment(law, 0) == 1.0
+    assert raw_moment(law, 2) == pytest.approx(1.005, rel=1e-12)
+
+
+def test_exponential_high_order_finite_moment_avoids_factorial_overflow():
+    from scipy.special import gammaln
+
+    expected = np.exp(gammaln(201) - 200 * np.log(100.0))
+    assert raw_moment(exponential(100.0), 200) == pytest.approx(expected, rel=1e-12, abs=0)
+
+
+@pytest.mark.parametrize("order", [1, 2])
+def test_limited_moment_retains_compact_mass_at_large_limits(order):
+    assert limited_moment(deterministic(2), 1e8, order=order) == pytest.approx(2**order)
+    assert limited_moment(exponential(2), 1e8, order=order) == pytest.approx(
+        math.factorial(order) / 2**order
+    )
+
+
+@pytest.mark.parametrize("method", ["upper", "lower", "rounding", "unbiased"])
+def test_discretize_preserves_atom_at_zero(method):
+    law = empirical([0.0, 0.0, 1.0])
+    result = discretize(law, to=2.0, step=0.5, method=method)
+    assert result.total_mass == pytest.approx(1.0)
+    assert result.pmf[0] == pytest.approx(2 / 3)
+
+
+def test_coverage_of_large_empirical_losses_has_exact_moments():
+    covered = coverage_transform(empirical([1e6, 3e6]), deductible=5e5)
+    assert covered.mean() == pytest.approx(1.5e6)
+    assert covered.variance() == pytest.approx(1e12)

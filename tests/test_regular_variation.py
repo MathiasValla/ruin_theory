@@ -2,6 +2,7 @@
 
 import numpy as np
 import pytest
+from scipy import special
 
 from ruin_theory import (
     InfiniteMeanPremiumModel,
@@ -192,3 +193,47 @@ def test_regular_variation_argument_validation_and_warning():
             [10.0],
             rho=1.0,
         )
+
+
+@pytest.mark.parametrize("power", [1.0, 1.25])
+def test_integral_rejects_powers_outside_supported_infinite_horizon_domain(power):
+    with pytest.warns(UserWarning, match="premium.power"):
+        model = pareto_infinite_mean_model(
+            claim_arrival_rate=1.0, tail_index=0.8,
+            premium_coefficient=1.0, premium_power=power,
+        )
+    with pytest.raises(ValueError, match="premium.power|premium_power"):
+        infinite_mean_one_big_jump_integral(model, 10.0)
+
+
+def test_infinite_mean_model_rejects_explicit_finite_mean_at_alpha_one():
+    # This survival has index -1 but integral one, by y = 1 + log(1 + x).
+    tail = RegularlyVaryingTail(
+        1.0, survival_function=lambda x: 1.0 / ((1.0 + x) * (1.0 + np.log1p(x))**2),
+        mean_value=1.0,
+    )
+    with pytest.raises(ValueError, match="infinite mean"):
+        InfiniteMeanRuinModel(1.0, tail, PolynomialPremiumGrowth(1.0, 2.0))
+
+
+@pytest.mark.parametrize("capital", [1e-6, 10.0, 1e12])
+def test_one_big_jump_quadrature_matches_exact_pareto_integral_across_scales(capital):
+    model = pareto_infinite_mean_model(
+        claim_arrival_rate=1.2, tail_index=0.8, pareto_scale=2.0,
+        premium_coefficient=1.5, premium_power=1.6,
+    )
+    expected = (
+        1.2 * 2.0**0.8 * (capital + 2.0)**(1.0 / 1.6 - 0.8)
+        * 1.5**(-1.0 / 1.6) * special.beta(1.0 / 1.6, 0.8 - 1.0 / 1.6) / 1.6
+    )
+    assert infinite_mean_one_big_jump_integral(model, capital) == pytest.approx(
+        expected, rel=1e-7,
+    )
+
+
+def test_custom_finite_mean_equilibrium_quadrature_at_large_capital():
+    tail = RegularlyVaryingTail(
+        2.0, survival_function=lambda x: (1.0 + x)**-2.0, mean_value=1.0,
+    )
+    result = finite_mean_equilibrium_tail(tail, [1e12])
+    np.testing.assert_allclose(result, [1.0 / (1.0 + 1e12)], rtol=1e-8, atol=0.0)

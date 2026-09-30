@@ -8,7 +8,6 @@ import operator
 
 import numpy as np
 from numpy.typing import ArrayLike
-from scipy import special
 
 from .distributions import ClaimDistribution
 from .formulas import _as_array, _primary_claim_formula_check, adjustment_coefficient
@@ -145,16 +144,19 @@ class LaguerreRuinExpansion:
 
         surplus = _as_array(u)
         z = self.xi * surplus.ravel()
-        integrals = np.empty((self.order + 1, z.size), dtype=float)
-        for degree in range(self.order + 1):
-            values = np.zeros_like(z)
-            for power in range(degree + 1):
-                values += (
-                    math.comb(degree, power)
-                    * ((-1.0) ** power)
-                    * special.gammaincc(power + 1.0, z)
-                )
-            integrals[degree] = values
+        integrals = np.zeros((self.order + 1, z.size), dtype=float)
+        finite = np.isfinite(z)
+        x = z[finite]
+        previous = np.exp(-x)
+        integrals[0, finite] = previous
+        if self.order:
+            current = -x * previous
+            integrals[1, finite] = current
+            # Integral = exp(-x) L_n^(-1)(x), avoiding alternating binomial sums.
+            for degree in range(2, self.order + 1):
+                following = ((2 * degree - 2 - x) * current - (degree - 2) * previous) / degree
+                integrals[degree, finite] = following
+                previous, current = current, following
         return integrals.reshape((self.order + 1,) + surplus.shape)
 
     def evaluate(self, u: ArrayLike, *, clip: bool = True) -> np.ndarray:

@@ -1,9 +1,11 @@
 import math
+from itertools import product
 
 import numpy as np
 import pytest
 
 from ruin_theory import (
+    ClaimDistribution,
     ConstantPreventionResult,
     DynamicPreventionResult,
     ExpectedSurplusPreventionResult,
@@ -554,3 +556,264 @@ def test_constant_prevention_optimizer_validates_arguments():
             annual_budget=0.0,
             controlled_frequency=2.0,
         )
+
+
+@pytest.mark.parametrize("optimizer", [optimize_constant_prevention, optimize_expected_surplus_prevention])
+def test_constant_prevention_accepts_zero_spending_cap(optimizer):
+    extra = {"horizon": 2.0} if optimizer is optimize_expected_surplus_prevention else {}
+    result = optimizer(
+        exponential(1.0), premium_rate=3.0, frequency_function=lambda p: math.exp(-p),
+        max_prevention=0.0, **extra,
+    )
+    assert result.amount == 0.0
+    assert result.boundary == "zero"
+    assert result.claim_arrival_rate == 1.0
+
+
+def test_frequency_response_wrapper_rejects_noncallable_at_construction():
+    with pytest.raises(TypeError, match="callable"):
+        frequency_function_from_response(1.0, 1.0)
+
+
+@pytest.mark.parametrize("effectiveness", [1000.0, 2000.0])
+def test_projected_log_calendar_keeps_budget_for_strong_prevention(effectiveness):
+    result = optimize_periodic_prevention_calendar(
+        [1.0], annual_budget=0.5, max_prevention=1.0, effectiveness=effectiveness,
+    )
+    np.testing.assert_allclose(result.amounts, [0.5], atol=1e-12)
+    assert result.budget_spent == pytest.approx(0.5, abs=1e-12)
+
+
+@pytest.mark.parametrize("scale", [1e-12, 1e12])
+def test_custom_periodic_response_is_invariant_to_pressure_scale(scale):
+    result = optimize_periodic_prevention_calendar(
+        scale * np.array([1.0, 4.0, 1.0, 1.0]), annual_budget=0.5,
+        max_prevention=1.0, prevention_response=lambda p: 1.0 / (1.0 + 2.0 * p),
+    )
+    np.testing.assert_allclose(result.amounts, [1.0 / 3.0, 1.0, 1.0 / 3.0, 1.0 / 3.0], atol=2e-6)
+    assert result.budget_spent == pytest.approx(0.5, abs=1e-10)
+
+
+@pytest.mark.parametrize("objective", ["adjustment_coefficient", "heavy_tail_large"])
+@pytest.mark.parametrize("baseline", [1.0, 100.0])
+def test_two_claim_objectives_search_only_net_profit_feasible_amounts(objective, baseline):
+    result = optimize_two_claim_prevention(
+        exponential(1.0), exponential(1.0), premium_rate=8.0,
+        small_claim_arrival_rate=0.5,
+        large_claim_frequency_function=lambda p: baseline * math.exp(-2.0 * p),
+        objective=objective,
+    )
+    grid = np.linspace(0.0, 8.0, 40001, endpoint=False)
+    rates = baseline * np.exp(-2.0 * grid)
+    drift = 8.0 - grid - 0.5 - rates
+    if objective == "adjustment_coefficient":
+        scores = np.where(drift > 0.0, 1.0 - (0.5 + rates) / (8.0 - grid), -np.inf)
+        assert result.adjustment_coefficient >= scores.max() - 1e-8
+    else:
+        scores = np.where(drift > 0.0, rates / drift, np.inf)
+        actual = result.large_claim_arrival_rate / (
+            result.net_premium_rate - 0.5 - result.large_claim_arrival_rate
+        )
+        assert actual <= scores.min() + 1e-8
+    assert result.loss_ratio < 1.0
+
+
+@pytest.mark.parametrize("objective", ["adjustment_coefficient", "heavy_tail_large"])
+def test_two_claim_objectives_reject_empty_net_profit_feasible_set(objective):
+    with pytest.raises(ValueError, match="net profit"):
+        optimize_two_claim_prevention(
+            exponential(1.0), exponential(1.0), premium_rate=1.0,
+            small_claim_arrival_rate=2.0,
+            large_claim_frequency_function=lambda p: math.exp(-p), objective=objective,
+        )
+
+
+def test_zero_rate_component_does_not_require_unused_distribution_transforms():
+    unused = ClaimDistribution(
+        name="unused", mean_value=1.0, variance_value=None,
+        sampler=lambda rng, n: np.ones(n),
+    )
+    result = optimize_two_claim_prevention(
+        unused, exponential(1.0), premium_rate=3.0, small_claim_arrival_rate=0.0,
+        large_claim_frequency_function=lambda p: math.exp(-p), max_prevention=1.0,
+        objective="adjustment_coefficient",
+    )
+    mixture = result.model.claim_distribution
+    assert mixture.mgf(0.2) == pytest.approx(1.25)
+    assert mixture.laplace(0.2) == pytest.approx(1.0 / 1.2)
+    assert mixture.variance() == pytest.approx(1.0)
+    np.testing.assert_allclose(mixture.cdf([0.0, 1.0]), exponential(1.0).cdf([0.0, 1.0]))
+    assert result.adjustment_coefficient > 0.0
+
+
+@pytest.mark.parametrize("steps", [1, 32])
+@pytest.mark.parametrize("initial", [0.0, 1.0])
+def test_heavy_tail_integral_includes_prevention_cost_through_each_step(steps, initial):
+    calendar = optimize_periodic_prevention_calendar(
+        [0.05], annual_budget=1.0, max_prevention=1.0, effectiveness=1.0,
+    )
+    result = heavy_tail_one_big_jump_ruin_probability(
+        calendar, tail_index=0.5, initial_capital=initial, annual_capacity=2.0,
+        horizon=1.0, steps_per_period=steps,
+    )
+    expected = 0.05 * math.exp(-1.0) * 2.0 * (math.sqrt(initial + 1.0) - math.sqrt(initial))
+    assert result == pytest.approx(expected, rel=1e-12)
+
+
+def test_heavy_tail_integral_detects_deterministic_reserve_exhaustion():
+    calendar = optimize_periodic_prevention_calendar(
+        [0.001], annual_budget=2.0, max_prevention=2.0, effectiveness=1.0,
+    )
+    assert heavy_tail_one_big_jump_ruin_probability(
+        calendar, tail_index=0.5, initial_capital=0.1, annual_capacity=1.0,
+        horizon=0.2, steps_per_period=1,
+    ) == 1.0
+
+
+def test_heavy_tail_integral_rejects_fractional_start_period():
+    calendar = optimize_periodic_prevention_calendar(
+        [0.01, 0.02], annual_budget=0.0, max_prevention=1.0, effectiveness=1.0,
+    )
+    with pytest.raises(ValueError, match="start_period"):
+        heavy_tail_one_big_jump_ruin_probability(
+            calendar, tail_index=0.5, initial_capital=1.0, annual_capacity=1.0,
+            horizon=1.0, start_period=0.5,
+        )
+
+
+def test_heavy_tail_expected_time_avoids_intermediate_underflow():
+    assert heavy_tail_expected_ruin_time_asymptotic(
+        tail_index=0.5, annual_capacity=1e300, tail_constant=1e200,
+    ) == pytest.approx(1e-100 / math.pi, rel=1e-12, abs=0.0)
+
+
+def test_dynamic_calendar_never_evaluates_response_above_cap_for_tiny_budgets():
+    cap = 1e-13
+
+    def response(amount):
+        assert np.all(np.asarray(amount) <= cap)
+        return np.exp(-np.asarray(amount) / cap)
+
+    result = optimize_dynamic_prevention_calendar(
+        [1.0, 2.0], initial_budget=4e-13, max_prevention=cap,
+        prevention_response=response, budget_grid_size=9, validate_response=False,
+    )
+    assert np.all(result.amounts <= cap)
+    assert result.controlled_pressure == pytest.approx(result.value_function[0, -1])
+
+
+@pytest.mark.parametrize("objective", ["adjustment_coefficient", "heavy_tail_large"])
+def test_two_claim_objectives_find_narrow_feasible_interval(objective):
+    result = optimize_two_claim_prevention(
+        exponential(1.0), exponential(1.0), premium_rate=2.00001,
+        small_claim_arrival_rate=0.5,
+        large_claim_frequency_function=lambda p: math.exp(2.0 - 2.0 * p) / 2.0,
+        objective=objective,
+    )
+    assert result.loss_ratio < 1.0
+    assert result.amount == pytest.approx(1.0, abs=2e-5)
+
+
+@pytest.mark.parametrize("cap", [0.0, 1e-8])
+def test_two_claim_derivative_probe_respects_prevention_cap(cap):
+    def frequency(amount):
+        assert np.all(np.asarray(amount) <= cap)
+        return np.exp(-np.asarray(amount))
+
+    result = optimize_two_claim_prevention(
+        exponential(1.0), exponential(1.0), premium_rate=3.0,
+        small_claim_arrival_rate=0.5, large_claim_frequency_function=frequency,
+        max_prevention=cap, validate_response=False,
+    )
+    assert 0.0 <= result.amount <= cap
+
+
+def test_constant_prevention_allows_underflowed_loss_ratio():
+    result = optimize_constant_prevention(
+        exponential(1e20), premium_rate=1e20, frequency_function=lambda p: 1e-300,
+        max_prevention=0.0, compute_adjustment=False,
+    )
+    assert result.loss_ratio == 0.0
+    assert result.safety_loading == math.inf
+
+
+def test_two_claim_mixture_preserves_known_infinite_variance():
+    infinite_variance = ClaimDistribution(
+        name="infinite_variance", mean_value=1.0, variance_value=math.inf,
+        sampler=lambda rng, n: np.ones(n),
+    )
+    result = optimize_two_claim_prevention(
+        exponential(1.0), infinite_variance, premium_rate=3.0,
+        small_claim_arrival_rate=0.5, large_claim_frequency_function=lambda p: math.exp(-p),
+        max_prevention=0.5,
+    )
+    assert result.model.claim_distribution.variance() == math.inf
+
+
+def test_dynamic_calendar_matches_exhaustive_discrete_allocation():
+    weights = np.array([1.0, 3.0, 2.0])
+    durations = np.array([0.2, 0.3, 0.5])
+    result = optimize_dynamic_prevention_calendar(
+        weights, durations=durations, initial_budget=0.6, max_prevention=1.0,
+        effectiveness=2.0, budget_grid_size=9,
+    )
+    candidates = [
+        np.dot(weights, np.exp(-2.0 * (np.array(spends) / durations)))
+        for spends in product(result.budget_grid, repeat=3)
+        if sum(spends) <= 0.6 + 1e-15 and np.all(np.array(spends) <= durations)
+    ]
+    assert result.controlled_pressure == pytest.approx(min(candidates), abs=1e-12)
+    assert result.value_function[0, -1] == pytest.approx(min(candidates), abs=1e-12)
+    assert np.dot(result.amounts, durations) <= 0.6 + 1e-15
+
+
+def test_dynamic_calendar_reuses_response_values_across_budget_states():
+    calls = 0
+
+    def response(amounts):
+        nonlocal calls
+        calls += 1
+        return np.exp(-2.0 * np.asarray(amounts))
+
+    result = optimize_dynamic_prevention_calendar(
+        [1.0, 3.0, 2.0], initial_budget=0.5, max_prevention=1.0,
+        prevention_response=response, budget_grid_size=101, validate_response=False,
+    )
+    assert calls <= 6
+    assert result.controlled_pressure == pytest.approx(result.value_function[0, -1])
+
+
+@pytest.mark.parametrize("net_rate", [0.0, -1.0])
+def test_heavy_tail_integral_handles_flat_and_decreasing_reserve(net_rate):
+    calendar = optimize_periodic_prevention_calendar(
+        [0.001], annual_budget=2.0, max_prevention=2.0, effectiveness=1.0,
+    )
+    result = heavy_tail_one_big_jump_ruin_probability(
+        calendar, tail_index=0.5, initial_capital=0.1, annual_capacity=2.0 + net_rate,
+        horizon=0.1, steps_per_period=1,
+    )
+    integral = 0.1 / math.sqrt(0.1) if net_rate == 0.0 else 2.0 * math.sqrt(0.1)
+    assert result == pytest.approx(0.001 * math.exp(-2.0) * integral)
+
+
+def test_heavy_tail_integral_respects_period_phase_and_unequal_durations():
+    calendar = optimize_periodic_prevention_calendar(
+        [0.01, 0.04], durations=[0.25, 0.75], annual_budget=0.0,
+        max_prevention=1.0, effectiveness=1.0,
+    )
+    result = heavy_tail_one_big_jump_ruin_probability(
+        calendar, tail_index=0.5, initial_capital=1.0, annual_capacity=1.0,
+        horizon=0.9, start_period=1, steps_per_period=3,
+    )
+    expected = 2.0 * (
+        0.04 / 0.75 * (math.sqrt(1.75) - 1.0)
+        + 0.01 / 0.25 * (math.sqrt(1.9) - math.sqrt(1.75))
+    )
+    assert result == pytest.approx(expected, rel=1e-12)
+
+
+def test_periodic_lundberg_coefficient_accepts_small_absolute_tolerance():
+    assert periodic_lundberg_coefficient(
+        exponential(5.0), premium_rate=1.0, annual_budget=0.0,
+        controlled_frequency=3.0, tol=1e-16,
+    ) == pytest.approx(2.0, rel=1e-12)

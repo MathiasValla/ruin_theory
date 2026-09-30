@@ -150,3 +150,71 @@ def test_discrete_time_helpers_validate_inputs():
         finite_time_discrete_time_ruin([[1.0]], premiums=[1.0, 2.0])
     with pytest.raises(ValueError, match="sum to at most one"):
         finite_time_discrete_time_ruin([[0.8, 0.8]], premiums=[1.0])
+
+
+def test_review_dependent_ruin_is_absorbing_after_premium_recovery():
+    result = finite_time_dependent_discrete_time_ruin(
+        [[2.0, 0.0], [0.0, 0.0]], [0.4, 0.6], premiums=[1.0, 2.0],
+        return_result=True,
+    )
+    np.testing.assert_allclose(result.survival_probabilities, [0.6, 0.6])
+    np.testing.assert_allclose(result.ruin_time_probabilities, [0.4, 0.0])
+    assert result.ruin_probability == pytest.approx(0.4)
+    np.testing.assert_allclose(result.surplus_distributions[1][0], [3.0])
+
+
+def test_review_dependent_matches_independent_enumeration_with_recovery():
+    scenarios, probabilities = exchangeable_bernoulli_claim_scenarios(
+        [0.25, 0.5, 0.25], claim_amount=2.0,
+    )
+    dependent = finite_time_dependent_discrete_time_ruin(
+        scenarios, probabilities, premiums=[1.0, 3.0], return_result=True,
+    )
+    independent = finite_time_discrete_time_ruin(
+        [[0.5, 0.0, 0.5]] * 2, premiums=[1.0, 3.0], return_result=True,
+    )
+    np.testing.assert_allclose(dependent.survival_probabilities, independent.survival_probabilities)
+
+
+@pytest.mark.parametrize("pmf", [lambda t: 1.0, lambda t: [], lambda t: [[1.0]]])
+def test_review_intensity_rejects_invalid_callback_shape(pmf):
+    with pytest.raises(ValueError, match="severity_pmf"):
+        claim_size_intensities_from_functions(1.0, pmf, [1.0], max_claim_size=1)
+
+
+def test_review_intensity_requires_integer_size():
+    with pytest.raises(TypeError, match="max_claim_size"):
+        claim_size_intensities_from_functions(1.0, [1.0], [1.0], max_claim_size=1.5)
+
+
+def test_review_lundberg_roots_ignore_zero_mass_padding():
+    with np.errstate(over="raise", invalid="raise"):
+        roots = period_lundberg_roots_from_pmf([[1.0, 0.0, 0.0]], premiums=[0.5])
+    assert np.isnan(roots[0])
+
+
+def test_review_lundberg_bounds_missing_roots_are_uninformative():
+    bounds = finite_time_lundberg_bounds([2.0, np.nan, 1.0], initial_capital=1.0)
+    np.testing.assert_allclose(bounds.bounds, [np.exp(-2.0), 1.0, 1.0])
+    np.testing.assert_allclose(
+        finite_time_lundberg_bounds([2.0, 0.0, 1.0], initial_capital=1.0).bounds,
+        [np.exp(-2.0), 1.0, 1.0],
+    )
+
+
+def test_review_deficit_quantile_uses_positive_mass_support():
+    result = finite_time_discrete_time_ruin(
+        [[0.0, 0.0, 1.0, 0.0]], premiums=[0.0], return_result=True,
+    )
+    assert ruin_deficit_quantile(result, period=0, probability=0.0) == 2.0
+    assert ruin_deficit_quantile(result, period=0, probability=1.0) == 2.0
+
+
+def test_review_lundberg_roots_require_complete_claim_law():
+    with pytest.raises(ValueError, match="sum to one"):
+        period_lundberg_roots_from_pmf([[0.5, 0.2]], premiums=[0.5])
+
+
+def test_review_intensity_retains_short_interval_at_high_rate():
+    actual = claim_size_intensities_from_functions(1e16, [0.0, 1.0], [1e-16], max_claim_size=1)
+    np.testing.assert_allclose(actual, [[0.0, 1.0]])

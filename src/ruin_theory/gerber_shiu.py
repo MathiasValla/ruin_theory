@@ -130,10 +130,14 @@ def gerber_shiu_exponential_closed_form(
         )
         return result if return_result else values
 
-    linear = premium * claim_rate - arrival - discount
-    root = (linear + math.sqrt(linear * linear + 4.0 * premium * claim_rate * discount))
-    root /= 2.0 * premium
-    prefactor = (claim_rate - root) / claim_rate * deficit_moment
+    linear = claim_rate - arrival / premium - discount / premium
+    discriminant = math.hypot(linear, 2.0 * math.sqrt(claim_rate) * math.sqrt(discount / premium))
+    # Rationalization avoids subtracting nearly equal values at high discount.
+    if linear >= 0.0:
+        root = 0.5 * linear + 0.5 * discriminant
+    else:
+        root = claim_rate * ((discount / premium) / (0.5 * discriminant - 0.5 * linear))
+    prefactor = arrival / (arrival + discount + premium * root) * deficit_moment
     values = prefactor * np.exp(-root * surplus)
     values = np.maximum(values, 0.0)
     result = GerberShiuExponentialClosedForm(
@@ -170,6 +174,8 @@ def gerber_shiu_from_paths(
     The penalty is evaluated as ``w(surplus_before_ruin, deficit_at_ruin)`` on
     ruined paths and zero on non-ruined paths. With ``penalty=None`` and
     ``discount_rate=0``, the estimate is the finite-horizon ruin probability.
+    An explicit ``horizon`` censors later ruin events. Otherwise the shortest
+    supplied simulation horizon is used; survival is never extrapolated.
     """
 
     path_list = list(paths)
@@ -179,6 +185,18 @@ def gerber_shiu_from_paths(
         raise TypeError("paths must contain only SimulationPath instances")
     discount, level = _validate_common(discount_rate, ci_level)
     penalty_function = _penalty_function(penalty)
+    if horizon is None:
+        finite_horizons = [float(path.horizon) for path in path_list if math.isfinite(path.horizon)]
+        horizon_value = min(finite_horizons) if finite_horizons else None
+    else:
+        horizon_value = float(horizon)
+        if not math.isfinite(horizon_value) or horizon_value <= 0.0:
+            raise ValueError("horizon must be positive and finite")
+    cutoff = math.inf if horizon_value is None else horizon_value
+    for path in path_list:
+        known_ruin = path.ruin_time is not None and path.ruin_time <= cutoff
+        if not known_ruin and (path.times.size == 0 or path.times[-1] < cutoff):
+            raise ValueError("paths must be observed until horizon or stopped at ruin")
 
     n = len(path_list)
     ruin_times = np.full(n, np.inf)
@@ -189,7 +207,7 @@ def gerber_shiu_from_paths(
     discounted = np.zeros(n, dtype=float)
 
     for index, path in enumerate(path_list):
-        if path.ruin_time is None:
+        if path.ruin_time is None or path.ruin_time > cutoff:
             continue
         pre_ruin = path.surplus_before_ruin
         deficit = path.deficit_at_ruin
@@ -212,14 +230,6 @@ def gerber_shiu_from_paths(
     estimate, standard_error, z = _normal_interval(discounted, level)
     ci_low = max(0.0, estimate - z * standard_error)
     ci_high = estimate + z * standard_error
-    if horizon is None:
-        finite_horizons = [float(path.horizon) for path in path_list if math.isfinite(path.horizon)]
-        horizon_value = max(finite_horizons) if finite_horizons else None
-    else:
-        horizon_value = float(horizon)
-        if not math.isfinite(horizon_value) or horizon_value <= 0.0:
-            raise ValueError("horizon must be positive and finite")
-
     return GerberShiuResult(
         estimate=estimate,
         standard_error=standard_error,
