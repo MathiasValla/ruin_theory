@@ -350,7 +350,42 @@ from .simulation import (
     simulate_terminal_reserves,
 )
 
+from .seasonal_prevention import (
+    PreventionResponseCurve,
+    SeasonalAllocationResult,
+    SeasonalLundbergAllocation,
+    SeasonalRuinComparison,
+    compare_seasonal_prevention,
+    integrate_seasonal_pressure,
+    optimize_seasonal_prevention,
+    optimize_seasonal_lundberg,
+    seasonal_lundberg_coefficient,
+    seasonal_exponential_profile_root,
+    StormLossDayCalibration,
+    calibrate_storm_loss_days,
+)
+from .heavy_tail_prevention import (
+    AnnualHeavyTailModel,
+    AnnualRuinTimeEstimate,
+    IsoMeanRuinComparison,
+    finite_mean_iso_loss_ruin,
+    infinite_mean_prevention_multiplier,
+    infinite_mean_ruin_time_scale,
+    premium_for_infinite_mean_scale,
+    simulate_annual_heavy_tail_ruin_times,
+    stable_ruin_time_laplace,
+)
+
 __all__ = [
+    "PreventionResponseCurve", "SeasonalAllocationResult", "SeasonalRuinComparison",
+    "compare_seasonal_prevention", "integrate_seasonal_pressure",
+    "optimize_seasonal_prevention", "seasonal_lundberg_coefficient",
+    "optimize_seasonal_lundberg", "SeasonalLundbergAllocation",
+    "seasonal_exponential_profile_root", "StormLossDayCalibration", "calibrate_storm_loss_days",
+    "AnnualHeavyTailModel", "AnnualRuinTimeEstimate", "IsoMeanRuinComparison",
+    "finite_mean_iso_loss_ruin", "infinite_mean_prevention_multiplier",
+    "infinite_mean_ruin_time_scale", "premium_for_infinite_mean_scale",
+    "simulate_annual_heavy_tail_ruin_times", "stable_ruin_time_laplace",
     "AggregateDistribution",
     "AllocationGridResult",
     "BarrierDividendAnalyticResult",

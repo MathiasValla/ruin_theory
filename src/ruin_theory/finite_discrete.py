@@ -763,7 +763,7 @@ def _picard_lefevre_survival(
     if math.isclose(x, 0.0, abs_tol=1e-14):
         return 1.0
     u_floor, _ = _capital_parts(initial_capital)
-    survival = 0.0
+    terms = []
     for j in range(u_floor + 1):
         formal = _h_values(
             claim_pmf,
@@ -775,7 +775,15 @@ def _picard_lefevre_survival(
         tail_time = x + initial_capital - j
         tail_index = _floor_nonnegative(tail_time)
         values = _h_values(claim_pmf, tail_time, claim_arrival_rate, premium_rate, tail_index)
-        survival += formal * _h_tilde(values, tail_time, tail_index)
+        terms.append(formal * _h_tilde(values, tail_time, tail_index))
+    survival = math.fsum(terms)
+    # Signed formal probabilities amplify rounding in the individual terms.
+    # Reevaluate with the nonnegative-time Seal route before clipping hides it.
+    roundoff_guard = 32 * np.finfo(float).eps * math.fsum(abs(x) for x in terms)
+    if roundoff_guard > 1e-11 or not 0 <= survival <= 1:
+        return _seal_survival(claim_pmf, initial_capital=initial_capital,
+                              premium_rate=premium_rate,
+                              claim_arrival_rate=claim_arrival_rate, horizon=horizon)
     return survival
 
 

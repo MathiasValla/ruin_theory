@@ -4,6 +4,71 @@ This page documents the current public API by feature. The package favors
 small composable objects: define a severity law, plug it into a risk process,
 then choose either a closed-form formula, a Monte Carlo estimator, or a plot.
 
+## Prevention Papers: 2026 Revisions
+
+See the [validation scope](prevention_2026_validation.md) for source cases,
+reproduction commands and explicit limitations.
+
+`seasonal_prevention` implements fixed and free budgets, capped exponential,
+quadratic and reciprocal responses, integer-period delays, continuous-profile
+quadrature, season-dependent severity MGFs, and common-event Monte Carlo.
+`optimize_seasonal_prevention` takes integrated loss weights
+`Lambda_i * mean_i * duration_i`. Use `budget_convention="rate"` for
+`sum(duration_i * p_i)` and `"amount"` for `sum(p_i)`. Response arguments remain
+the optimization variables in each convention; convert monthly lump amounts
+to spending rates explicitly before simulation. A budget ceiling is an
+inequality, distinct from the pointwise cap. A custom convex response uses
+SLSQP; no global-optimality claim is made for nonconvex activation thresholds.
+`min_prevention` supports the source's alternative requiring a minimum
+investment in every interval, not optional on/off activation.
+
+`seasonal_exponential_profile_root` supplies affine, triangular and cosine closed
+forms; mesh roots independently check them. `compare_seasonal_prevention`
+simulates step calendars at event times, including negative deterministic
+drift. It reports Wilson intervals and paired gain errors. Finite dynamic
+calendars use their actual period durations and a matching horizon; the
+existing dynamic optimizer is a remaining-budget recursion, not
+reserve-feedback stochastic control. `calibrate_storm_loss_days` retains every
+positive day after capping losses and requires all twelve months per year.
+Bootstrap whole years for calibration uncertainty, separately from MC error.
+
+`optimize_seasonal_lundberg` maximizes the averaged adjustment coefficient
+through an outer root search and an inner convex KKT allocation using weights
+`Lambda_i * duration_i * (M_i(R)-1)/R`. It supports fixed/free budgets, a
+ceiling, a minimum rate and lagged effects for the analytic response families.
+The returned allocation's loss is the actual expected loss, not the MGF
+surrogate used during optimization. An averaged root is not by itself a
+uniform-in-phase ruin bound.
+
+`heavy_tail_prevention` implements the annual Pareto/light mixture in Valla's
+2026 manuscript, distinct from continuous-time or one-big-jump proxies.
+`simulate_annual_heavy_tail_ruin_times` returns a mean only when all trajectories
+ruin; it raises on censoring. Zero light losses enable exact geometric
+event skipping; nonzero light losses retain annual-step simulation, including
+ruin on light-only years. Time scales, inverse premiums, stable limiting
+Laplace transforms and prevention multipliers are public APIs.
+`finite_mean_iso_loss_ruin` compares equal-loss reductions for Lomax and
+exponential streams using exact Pollaczek--Khinchine supremum sampling.
+
+Run `python examples/prevention_paper_reproductions.py` for smoke experiments,
+or add `--full` for the heavy-tail paper's grids/sample sizes. The seasonal
+default is synthetic, not ERA5 table replication. Exact storm calibration needs
+author-supplied calibrated daily data via `--storm-data` (CSV:
+`year,month,loss` in EUR); uncalibrated raw loss files are not interchangeable.
+`examples/seasonal_storm_replication.py INPUT_DIRECTORY --paths 3000
+--bootstrap 5000` consumes the authors' standardized monthly frequency/severity
+CSVs, verifies all four policy objectives/roots against the October manuscript,
+and runs historical/climate scenarios. The default climate premium is fixed at
+each chain's historical control, as in Table 6. `--premium-rule scenario_repriced`
+selects the separate repriced sensitivity design. The whole-year bootstrap
+reoptimizes each expected-loss calendar, not ruin-probability confidence limits.
+`examples/compare_heavy_tail_paper.py RESULT_JSON PRIVATE_FIGURES_DIRECTORY`
+compares independent paper-sized runs with the authors' CSVs, using combined
+MC standard errors rather than requiring identical seeds or comparing finite
+premium estimates to an exact asymptotic equality. No private inputs ship.
+The two validation notebooks identify source versions, numerical checks and
+remaining empirical-data needs.
+
 ## Severity Distributions
 
 Severity factories return a `ClaimDistribution`. A distribution stores a name,

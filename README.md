@@ -77,6 +77,11 @@ of the public package or release artifacts.
 - [Matrix-analytic prevention example](examples/matrix_analytic_prevention.py):
   matrix-exponential ruin, PH renewal counts, closed Gerber-Shiu transforms,
   dynamic seasonal prevention and two-claim prevention plots.
+- [2026 prevention reproductions](examples/prevention_paper_reproductions.py):
+  fixed/free seasonal allocations, adjustment roots and annual heavy-tail
+  experiments, with smoke and paper-sized modes.
+- [Prevention validation scope](docs/prevention_2026_validation.md):
+  source cases, independent numerical checks and private storm-data adapter.
 - [Loisel-Privault sensitivity example](examples/loisel_privault_sensitivity.py):
   integration-by-parts infimum-density curves, exponential finite-difference
   validation and Pareto heavy-tail diagnostics.

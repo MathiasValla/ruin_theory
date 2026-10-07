@@ -114,6 +114,13 @@ def test_picard_lefevre_seal_and_inventory_methods_agree():
     assert picard_lefevre == pytest.approx(inventory.ruin_probability, abs=2e-13)
 
 
+def test_picard_lefevre_does_not_clip_rare_ruin_after_cancellation():
+    result = finite_time_ruin_discrete([0, 1], initial_capital=20, premium_rate=1.25,
+                                       claim_arrival_rate=1, horizon=10,
+                                       method="picard-lefevre")
+    assert result == pytest.approx(1.4338038e-8, rel=1e-6, abs=1e-13)
+
+
 def test_formulas_support_non_integer_initial_capital():
     # With u=0.5, c=1, lambda=1 and unit claims, survival to t=1 requires
     # N(0.5)=0 and at most one claim by t=1: exp(-1) * (1 + 0.5).
