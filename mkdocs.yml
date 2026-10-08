@@ -1,4 +1,5 @@
 site_name: ruin-theory
+site_url: https://mathiasvalla.github.io/ruin_theory/
 site_description: Numerical and simulation tools for ruin theory in Python.
 theme:
   name: material
@@ -7,6 +8,7 @@ nav:
   - Features: features.md
   - References: references.md
   - Validation: validation.md
+  - Prevention 2026 Validation: prevention_2026_validation.md
   - September 2026 Code Review: code_review_2026_09.md
   - Method Provenance: method_provenance_table.md
   - Reproducing R actuar: reproduce_r_actuar_package.md

@@ -21,7 +21,7 @@ python -m twine check dist/*
 - Run the full test suite with coverage:
 
 ```bash
-pytest --cov=ruin_theory --cov-report=term-missing --cov-report=html
+pytest --cov=ruin_theory --cov-fail-under=80 --cov-report=term-missing --cov-report=xml --cov-report=html
 ```
 
 - Run validation notebooks:
@@ -36,8 +36,19 @@ python scripts/check_validation_notebooks.py
 mkdocs build --strict
 ```
 
-- Enable GitHub Pages from GitHub Actions once the public repository exists.
-  The `Docs` workflow deploys `mkdocs.yml` to Pages from the `main` branch.
+- In repository **Settings > Pages > Build and deployment**, set **Source** to
+  **GitHub Actions**. This is a one-time repository setting, not a setting in
+  `mkdocs.yml`. The `Docs` workflow deploys the site from the `main` branch to
+  <https://mathiasvalla.github.io/ruin_theory/>.
+- If `actions/configure-pages` returns `Get Pages site failed` / `Not Found`,
+  check that setting before retrying the workflow. The workflow's default
+  `GITHUB_TOKEN` cannot enable Pages automatically; do not add an administrator
+  token to CI just to bypass this setup step.
+
+The pytest configuration adds both `src` and the repository root to the test
+import path. The latter is needed for reference-validation tests that import
+`examples.r_actuar_package_python`; keep the direct `pytest` invocation working
+as well as `python -m pytest`.
 
 ## Private Material
 

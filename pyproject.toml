@@ -59,7 +59,8 @@ release = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src"]
+# Reference validation tests import repository examples as well as the package.
+pythonpath = ["src", "."]
 
 [tool.ruff]
 line-length = 100
